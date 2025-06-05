@@ -1,7 +1,7 @@
 import statsapi
 from datetime import datetime
-from KalshiDogecoin.market import Market
-from lookup import mlb_teams
+from Infrastructure.market import Market
+from Baseball.lookup import mlb_teams
 
 # statsapi.get('game', {'gamePk': 565997})
 # statsapi.get('game_timestamps', {'gamePk': 565997})
@@ -14,13 +14,15 @@ from lookup import mlb_teams
 
 
 def market_to_game(market: Market):
-    _, data, home_team = market.ticker.split('-')
+    _, data, team1 = market.ticker.split('-')
 
     year = "20" + str(data[0:2])
     month_str = data[2:5]
     day_str = data[5:7]
     teams = data[7:]
-    away_team = teams.replace(home_team, '', 1)
+    is_doubleheader_g2 = "G2" in teams
+    team2 = teams.replace(team1, '', 1)
+    team2 = team2.replace("G2", "", 1) 
 
     # Convert month abbreviation to number
     date_obj = datetime.strptime(f"{day_str} {month_str} {year}", "%d %b %Y")
@@ -28,12 +30,22 @@ def market_to_game(market: Market):
 
     # Get statsapi info
     schedule = statsapi.schedule(date_str)
-    home_full_name = mlb_teams[home_team]
-    away_full_name = mlb_teams[away_team]
+    team1_full_name = mlb_teams[team1]
+    team2_full_name = mlb_teams[team2]
+
     date_str_statsapi = datetime.strftime(date_obj, '%Y-%m-%d')
     for game in schedule:
-        if game['home_name'] == home_full_name and game['away_name'] == away_full_name and game['game_date'] == date_str_statsapi:
-            return BaseballGame(game['game_id'], home_team, away_team, game['game_date'], game['game_datetime'], game['status'])
+        if is_doubleheader_g2:
+            if game['home_name'] == team1_full_name and game['away_name'] == team2_full_name and game['game_date'] == date_str_statsapi and game['game_num'] == 2:
+                return BaseballGame(game['game_id'], team1, team2, game['game_date'], game['game_datetime'], game['status'])
+            if game['home_name'] == team2_full_name and game['away_name'] == team1_full_name and game['game_date'] == date_str_statsapi and game['game_num'] == 2:
+                return BaseballGame(game['game_id'], team2, team1, game['game_date'], game['game_datetime'], game['status'])
+        else:
+            if game['home_name'] == team1_full_name and game['away_name'] == team2_full_name and game['game_date'] == date_str_statsapi:
+                return BaseballGame(game['game_id'], team1, team2, game['game_date'], game['game_datetime'], game['status'])
+            if game['home_name'] == team2_full_name and game['away_name'] == team1_full_name and game['game_date'] == date_str_statsapi:
+                return BaseballGame(game['game_id'], team2, team1, game['game_date'], game['game_datetime'], game['status'])
+            
 
     Exception("Unable to match market to statsapi baseball game.")
 

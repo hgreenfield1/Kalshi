@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from KalshiDogecoin.clients.base_client import Environment, KalshiBaseClient
-from KalshiDogecoin.market import Market
+from Infrastructure.Clients.base_client import Environment, KalshiBaseClient
+from Infrastructure.market import Market
 
 
 class KalshiHttpClient(KalshiBaseClient):
@@ -82,6 +82,18 @@ class KalshiHttpClient(KalshiBaseClient):
         """Retrieves the exchange status."""
         return self.get(self.exchange_url + "/status")
 
+    async def get_orders(self, market_ticker: str):
+        res, code = await self.get("/portfolio/orders/?ticker=" + market_ticker + "&status=resting")
+        return res, code
+    
+    async def cancel_limit_order(self, order_id):
+        try:
+            resolve, code = await self.delete(f"/portfolio/orders/{order_id}")
+            return resolve, code
+        except Exception as e:
+            print("Error canceling order:", e)
+            return False # failed cancel, don't handle error here
+        
     def get_trades(
         self,
         ticker: Optional[str] = None,

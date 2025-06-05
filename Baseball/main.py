@@ -1,20 +1,21 @@
 import logging
 import asyncio
-import KalshiDogecoin.util.get_clients as get_clients
-from KalshiDogecoin.state import TradingState
+import Infrastructure.Clients.get_clients as get_clients
+from Infrastructure.state import TradingState
 from Baseball.strategy import Strategy
-from BaseballGame import market_to_game
+from Baseball.BaseballGame import market_to_game
 
 logging.basicConfig(level=logging.INFO)
 
 
 # TODO
 #   Improve mid price projection
-#   implement market making algorithm with inventory controls
+#   implement market making algorithm with inventory controls - need to post quotes or just take liquidity?
 #   build out logging for single game
 #   build order placing logic
-#   make sure pre-game and finished games are handled correctly in the update call()
+#   make sure pre-game and finished games are handled correctly in the update call
 #   make logging optional on market state functions
+#   test all ordermanager functions
 
 async def main():
     update = asyncio.Event()
@@ -23,8 +24,13 @@ async def main():
     markets = http_client.get_markets(['KXMLBGAME'])
 
     market_game_pairs = {market: market_to_game(market) for market in markets.values()}
-    market_game_pairs = {k: v for k, v in market_game_pairs.items() if v is not None}
     market_game_pairs = {k: v for k, v in market_game_pairs.items() if v.status != 'Postponed'}
+    unique_games = {}
+    for market, game in market_game_pairs.items():
+        if game.game_id not in unique_games:
+            unique_games[game.game_id] = (market, game)
+    market_game_pairs = {market: game for market, game in unique_games.values()}
+
 
     market = list(market_game_pairs.keys())[0]
     game = market_game_pairs[market]

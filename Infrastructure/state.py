@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from KalshiDogecoin.clients.http_client import KalshiHttpClient
+from Infrastructure.Clients.http_client import KalshiHttpClient
 
 
 class Orderbook:
@@ -26,7 +26,7 @@ class Orderbook:
         self.bids = bids
         self.asks = asks
         self.last_update = "kalshi"
-        # logging.info(datetime.now().strftime("%H:%M:%S") + F": Received Kalshi orderbook snapshot: {orderbook}")
+        logging.debug(datetime.now().strftime("%H:%M:%S") + F": Received Kalshi orderbook snapshot: {orderbook}")
 
     def update_orderbook(self, delta):
         price = delta["price"]

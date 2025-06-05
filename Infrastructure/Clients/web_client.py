@@ -8,8 +8,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 import websockets
 
-from KalshiDogecoin.state import TradingState
-from KalshiDogecoin.clients.base_client import Environment, KalshiBaseClient
+from Infrastructure.state import TradingState
+from Infrastructure.Clients.base_client import Environment, KalshiBaseClient
 
 
 class KalshiWebSocketClient(KalshiBaseClient):
@@ -81,7 +81,7 @@ class KalshiWebSocketClient(KalshiBaseClient):
             await self.resubscribe()
 
     async def consume(self, raw_message):
-            # logging.info(datetime.now().strftime("%H:%M:%S") + ": Received message:" + raw_message)
+            logging.debug(datetime.now().strftime("%H:%M:%S") + ": Received message:" + raw_message)
             message = json.loads(raw_message)
             if message["type"] == "orderbook_delta" or message["type"] == "orderbook_snapshot":
                 msgSeq = message["seq"]
@@ -112,14 +112,14 @@ class KalshiWebSocketClient(KalshiBaseClient):
         self.update.set()
 
     async def on_error(self, error):
-        logging.info("WebSocket error:" + str(error))
+        logging.warning("WebSocket error:" + str(error))
         self.error_count += 1
         await asyncio.sleep(1)
-        logging.info("Attempting to resubscribe...")
+        logging.warning("Attempting to resubscribe...")
         await self.subscribe()
 
     async def close(self, code, reason):
-        logging.info("WebSocket connection closed with code:", code, "and message:", reason)
+        logging.warning("WebSocket connection closed with code:", code, "and message:", reason)
         if self.ws:
             await self.ws.close()
             self.ws = None

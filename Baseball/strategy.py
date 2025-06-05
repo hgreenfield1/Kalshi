@@ -1,7 +1,7 @@
 import asyncio
-from KalshiDogecoin.clients.http_client import KalshiHttpClient
-from KalshiDogecoin.state import TradingState
-from KalshiDogecoin.market import Market
+from Infrastructure.Clients.http_client import KalshiHttpClient
+from Infrastructure.state import TradingState
+from Infrastructure.market import Market
 from Baseball.BaseballGame import BaseballGame
 import logging
 from datetime import datetime, timezone
@@ -49,6 +49,9 @@ class Strategy:
                         logging.info(f"Projected win probability {self.game.away_team_abv}:{round(100-mid_price_projection, 2)} @ {self.game.home_team_abv}:{round(mid_price_projection, 2)}")
                         logging.info(f"Traded win probability {self.game.away_team_abv}:{100-min(orderbook.asks)} @ {self.game.home_team_abv}:{min(orderbook.asks)}")
                         self.log = pd.concat([self.log, pd.DataFrame({"Time": pd.Timestamp.now(), "Predicted": mid_price_projection, "Bid": [max(orderbook.bids)], "Ask": [min(orderbook.asks)]})], ignore_index=True)
+                    
+                    elif self.game.status == "Final":
+                        logging.info(f"Game complete for {self.game.away_team_abv} @ {self.game.home_team_abv}")
 
             except Exception as e:
                 logging.error(e)

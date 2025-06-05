@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: main.py",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "Baseball.main",
+      "cwd": "C:\\Users\\henry\\Kalshi",
+      "console": "integratedTerminal"
+    }
+  ]
+}
