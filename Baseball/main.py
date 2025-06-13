@@ -16,6 +16,8 @@ logging.basicConfig(level=logging.INFO)
 #   make sure pre-game and finished games are handled correctly in the update call
 #   make logging optional on market state functions
 #   test all ordermanager functions
+#   only use statsapi for game state. Calculate win prob using a different calculator
+#   build backtesting framework
 
 async def main():
     update = asyncio.Event()
@@ -25,14 +27,20 @@ async def main():
 
     market_game_pairs = {market: market_to_game(market) for market in markets.values()}
     market_game_pairs = {k: v for k, v in market_game_pairs.items() if v.status != 'Postponed'}
-    unique_games = {}
-    for market, game in market_game_pairs.items():
-        if game.game_id not in unique_games:
-            unique_games[game.game_id] = (market, game)
-    market_game_pairs = {market: game for market, game in unique_games.values()}
 
+    # Keep only home team markets
+    market_game_pairs = {
+        market: game
+        for market, game in market_game_pairs.items()
+        if market.ticker.split('-')[-1] == game.home_team_abv
+    }
 
-    market = list(market_game_pairs.keys())[0]
+    #market = list(market_game_pairs.keys())[0]
+    home_team = "COL"
+    market = next(
+        (m for m, g in market_game_pairs.items() if g.home_team_abv == home_team),
+        None
+    )
     game = market_game_pairs[market]
 
     trading_state = TradingState(http_client, market.ticker)

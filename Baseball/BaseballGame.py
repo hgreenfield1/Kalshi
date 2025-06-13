@@ -2,6 +2,7 @@ import statsapi
 from datetime import datetime
 from Infrastructure.market import Market
 from Baseball.lookup import mlb_teams
+from Baseball.win_calculator import getProbability
 
 # statsapi.get('game', {'gamePk': 565997})
 # statsapi.get('game_timestamps', {'gamePk': 565997})
@@ -73,6 +74,7 @@ class BaseballGame:
         self.outs = 0
         self.balls = 0
         self.strikes = 0
+        self.runner_index = 0
         self.captivating_index = 0
 
     def update_status(self):
@@ -92,6 +94,7 @@ class BaseballGame:
             self.outs = current_play['count']['outs']
             self.balls = current_play['count']['balls']
             self.strikes = current_play['count']['strikes']
+            self.runner_index = current_play['runnerIndex']
             self.captivating_index = current_play['about']['captivatingIndex']
 
         elif self.status == "Final":
@@ -103,8 +106,33 @@ class BaseballGame:
         self.pctPlayed = self.calc_pct_played()
 
     def get_win_probability(self):
-        win_prob = statsapi.get('game_winProbability', {'gamePk': self.game_id})
-        return win_prob[-1]['homeTeamWinProbability']
+        #win_prob = statsapi.get('game_winProbability', {'gamePk': self.game_id})
+        #win_prob[-1]['homeTeamWinProbability']
+        if self.runner_index == [0]:
+            runners = 1
+        elif self.runner_index == [0, 1]:
+            runners = 2
+        elif self.runner_index == [0, 2]:
+            runners = 3
+        elif self.runner_index == [0, 1, 2]:
+            runners = 4
+        elif self.runner_index == [0, 3]:
+            runners = 5
+        elif self.runner_index == [0, 1, 3]:
+            runners = 6
+        elif self.runner_index == [0, 2, 3]:
+            runners = 7
+        elif self.runner_index == [0, 1, 2, 3]:
+            runners = 8
+        else:
+            raise Exception("Invalid runner index")
+
+        if self.isTopInning:
+            homeOrVisitor = 'V'
+        else:
+            homeOrVisitor = 'H'
+
+        return getProbability(homeOrVisitor, self.inning, self.outs, runners, self.net_score)
 
     def calc_pct_played(self):
         inning_pct = self.inning / 9 + (not self.isTopInning) / (9 * 2)
@@ -118,4 +146,7 @@ class BaseballGame:
         if candlestick['candlesticks'][0]['price']['mean'] is not None:
             self.pregame_winProbability = candlestick['candlesticks'][0]['price']['mean']
         else:
-            Exception("Pregame win probability is unavailable.")
+            if candlestick['candlesticks'][0]['yes_bid']['close'] is not None:
+                self.pregame_winProbability = candlestick['candlesticks'][0]['yes_bid']['close']
+            else:
+                Exception("Pregame win probability is unavailable.")
