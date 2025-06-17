@@ -126,6 +126,10 @@ class KalshiHttpClient(KalshiBaseClient):
                 market_dict[market.ticker] = market
 
         return market_dict
+    
+    def get_market_by_ticker(self, ticker) -> Market:
+        market = self.get(self.markets_url + "?tickers=" + ticker)
+        return Market(market['markets'][0])
 
     def get_market_candelstick(self, market_ticker: str, series_ticker: str, start_ts: int | str, end_ts: int | str, interval: int = 1):
         if isinstance(start_ts, str):

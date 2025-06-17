@@ -77,25 +77,29 @@ class BaseballGame:
         self.runner_index = 0
         self.captivating_index = 0
 
-    def update_status(self):
-        info = statsapi.schedule(game_id=self.game_id)
-        self.status = info[0]['status']
-        self.home_score = info[0]['home_score']
-        self.away_score = info[0]['away_score']
+    def update_status(self, timestamp=None):
+        if not timestamp:
+            game_data = statsapi.get('game', {'gamePk': self.game_id})
+        else:
+            game_data = statsapi.get('game', {'gamePk': self.game_id, 'timecode': timestamp})
+
+        self.status = game_data['gameData']['status']['detailedState']
+        self.home_score = game_data['liveData']['linescore']['teams']['home']['runs']
+        self.away_score = game_data['liveData']['linescore']['teams']['away']['runs']
         self.net_score = self.home_score - self.away_score
 
         if self.status == "In Progress":
-            self.winProbability = self.get_win_probability()
-
-            game_data = statsapi.get('game', {'gamePk': self.game_id})
+            self.inning = game_data['liveData']['linescore']['currentInning']
+            self.isTopInning = game_data['liveData']['linescore']['isTopInning']
             current_play = game_data['liveData']['plays']['currentPlay']
-            self.inning = current_play['about']['inning']
-            self.isTopInning = True if current_play['about']['halfInning'] == "top" else False
             self.outs = current_play['count']['outs']
             self.balls = current_play['count']['balls']
             self.strikes = current_play['count']['strikes']
-            self.runner_index = current_play['runnerIndex']
+            self.runner_index = self.get_runner_state(current_play['runners'])
             self.captivating_index = current_play['about']['captivatingIndex']
+            self.roll_status()
+            self.winProbability = self.get_win_probability()
+
 
         elif self.status == "Final":
             self.inning = 9
@@ -103,36 +107,23 @@ class BaseballGame:
             self.outs = 3
             self.strikes = 3
 
+        else:
+            raise Exception(f"Game status {self.status} is not supported.")
+
         self.pctPlayed = self.calc_pct_played()
 
     def get_win_probability(self):
         #win_prob = statsapi.get('game_winProbability', {'gamePk': self.game_id})
         #win_prob[-1]['homeTeamWinProbability']
-        if self.runner_index == [0]:
-            runners = 1
-        elif self.runner_index == [0, 1]:
-            runners = 2
-        elif self.runner_index == [0, 2]:
-            runners = 3
-        elif self.runner_index == [0, 1, 2]:
-            runners = 4
-        elif self.runner_index == [0, 3]:
-            runners = 5
-        elif self.runner_index == [0, 1, 3]:
-            runners = 6
-        elif self.runner_index == [0, 2, 3]:
-            runners = 7
-        elif self.runner_index == [0, 1, 2, 3]:
-            runners = 8
-        else:
-            raise Exception("Invalid runner index")
-
         if self.isTopInning:
             homeOrVisitor = 'V'
         else:
             homeOrVisitor = 'H'
 
-        return getProbability(homeOrVisitor, self.inning, self.outs, runners, self.net_score)
+        prob = getProbability(homeOrVisitor, self.inning, self.outs, self.runner_index, self.net_score) 
+        if prob != -1:
+            prob = prob * 100
+        return prob
 
     def calc_pct_played(self):
         inning_pct = self.inning / 9 + (not self.isTopInning) / (9 * 2)
@@ -150,3 +141,44 @@ class BaseballGame:
                 self.pregame_winProbability = candlestick['candlesticks'][0]['yes_bid']['close']
             else:
                 Exception("Pregame win probability is unavailable.")
+
+    def roll_status(self):
+        if self.strikes == 3:
+            self.strikes = 0
+            self.outs += 1
+        if self.outs == 3:
+            self.outs = 0
+            if self.isTopInning:
+                self.isTopInning = False
+            else:
+                self.inning += 1
+                self.isTopInning = True
+
+    def get_runner_state(self, runners):
+        """
+        Map the 'runners' field of a play to an integer (1-8) representing the base state.
+        runners: list of dicts, each with a 'base' key (e.g., '1B', '2B', '3B')
+        Returns:
+            int: 1 = bases empty, 2 = 1st, 3 = 2nd, 4 = 1st+2nd, 5 = 3rd, 6 = 1st+3rd, 7 = 2nd+3rd, 8 = loaded
+        """
+        bases = set(r['movement']['originBase'] for r in runners)
+        if None in bases:
+            bases.remove(None)
+        if bases == set():
+            return 1  # bases empty
+        elif bases == {'1B'}:
+            return 2
+        elif bases == {'2B'}:
+            return 3
+        elif bases == {'1B', '2B'}:
+            return 4
+        elif bases == {'3B'}:
+            return 5
+        elif bases == {'1B', '3B'}:
+            return 6
+        elif bases == {'2B', '3B'}:
+            return 7
+        elif bases == {'1B', '2B', '3B'}:
+            return 8
+        else:
+            raise ValueError(f"Unknown base state: {bases}")
