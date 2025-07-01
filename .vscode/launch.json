@@ -2,6 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Python: backtest.py",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "Baseball.Backtest.backtest",
+      "cwd": "C:\\Users\\henry\\Kalshi",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Python: main.py",
       "type": "debugpy",
       "request": "launch",

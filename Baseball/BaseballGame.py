@@ -1,5 +1,6 @@
 import statsapi
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from Infrastructure.market import Market
 from Baseball.lookup import mlb_teams
 from Baseball.win_calculator import getProbability
@@ -81,9 +82,12 @@ class BaseballGame:
         if not timestamp:
             game_data = statsapi.get('game', {'gamePk': self.game_id})
         else:
+            timestamp = BaseballGame.convert_utc_to_local(timestamp)
             game_data = statsapi.get('game', {'gamePk': self.game_id, 'timecode': timestamp})
 
         self.status = game_data['gameData']['status']['detailedState']
+        if self.status == "Warmup":
+            self.status = "Pre-Game"
         self.home_score = game_data['liveData']['linescore']['teams']['home']['runs']
         self.away_score = game_data['liveData']['linescore']['teams']['away']['runs']
         self.net_score = self.home_score - self.away_score
@@ -100,12 +104,20 @@ class BaseballGame:
             self.roll_status()
             self.winProbability = self.get_win_probability()
 
+        elif self.status == "Delayed":
+            logging.warning(f"Game {self.game_id} is delayed. Status: {self.status}")
 
         elif self.status == "Final":
             self.inning = 9
             self.isTopInning = False
             self.outs = 3
             self.strikes = 3
+
+        elif self.status == "Pre-Game":
+            self.inning = 1
+            self.isTopInning = True
+            self.outs = 0
+            self.strikes = 0
 
         else:
             raise Exception(f"Game status {self.status} is not supported.")
@@ -126,7 +138,7 @@ class BaseballGame:
         return prob
 
     def calc_pct_played(self):
-        inning_pct = self.inning / 9 + (not self.isTopInning) / (9 * 2)
+        inning_pct = (self.inning - 1) / 9 + (not self.isTopInning) / (9 * 2)
         out_pct = self.outs / (9 * 2 * 3)
         strike_pct = self.strikes / (9 * 2 * 3 * 3)
 
@@ -143,10 +155,10 @@ class BaseballGame:
                 Exception("Pregame win probability is unavailable.")
 
     def roll_status(self):
-        if self.strikes == 3:
+        if self.strikes >= 3:
             self.strikes = 0
             self.outs += 1
-        if self.outs == 3:
+        if self.outs >= 3:
             self.outs = 0
             if self.isTopInning:
                 self.isTopInning = False
@@ -182,3 +194,21 @@ class BaseballGame:
             return 8
         else:
             raise ValueError(f"Unknown base state: {bases}")
+        
+
+    staticmethod 
+    def convert_utc_to_local(ts_str):
+        """
+        Converts a UTC ISO timestamp ('%Y-%m-%dT%H:%M:%SZ') to format as 'yyyymmdd_hhmmss'.
+        If already in 'yyyymmdd_hhmmss' format, returns unchanged.
+        """
+        custom_fmt = "%Y%m%d_%H%M%S"
+        iso_fmt = "%Y-%m-%dT%H:%M:%SZ"
+        try:
+            # Already in custom format
+            datetime.strptime(ts_str, custom_fmt)
+            return ts_str
+        except ValueError:
+            # Convert from UTC ISO to local time
+            dt_utc = datetime.strptime(ts_str, iso_fmt).replace(tzinfo=timezone.utc)
+            return dt_utc.strftime(custom_fmt)

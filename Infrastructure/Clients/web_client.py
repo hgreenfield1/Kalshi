@@ -87,9 +87,11 @@ class KalshiWebSocketClient(KalshiBaseClient):
                 msgSeq = message["seq"]
 
                 if msgSeq != (self.ob_seq_ + 1) and self.ob_seq_ != -1:
+
                     logging.warning("Out of order message received, restarting connection...")
                     await self.ws.close()
                     self._running = False
+                    msgSeq = -1
 
                 self.ob_seq_ = msgSeq
 

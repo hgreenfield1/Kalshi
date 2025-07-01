@@ -52,7 +52,7 @@ class Orderbook:
                 del self.bids[price]
 
         self.last_update = "kalshi"
-        # logging.info(f"Received Kalshi orderbook delta: {delta}")
+        logging.debug(f"Received Kalshi orderbook delta: {delta}")
         #self.om.interupted = True
 
 

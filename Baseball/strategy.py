@@ -56,10 +56,10 @@ class Strategy:
                             self.log = pd.concat([self.log, pd.DataFrame({"Time": pd.Timestamp.now(), "Predicted": mid_price_projection, "Bid": [max(orderbook.bids)], "Ask": [min(orderbook.asks)]})], ignore_index=True)
                         elif orderbook.asks:
                             logging.info(f"Traded win probability {self.game.away_team_abv}:{100-min(orderbook.asks)} @ {self.game.home_team_abv}:{min(orderbook.asks)}")
-                            self.log = pd.concat([self.log, pd.DataFrame({"Time": pd.Timestamp.now(), "Predicted": mid_price_projection, "Bid": [], "Ask": [min(orderbook.asks)]})], ignore_index=True)
+                            self.log = pd.concat([self.log, pd.DataFrame({"Time": pd.Timestamp.now(), "Predicted": mid_price_projection, "Bid": [0], "Ask": [min(orderbook.asks)]})], ignore_index=True)
                         elif orderbook.bids: 
                             logging.info(f"Traded win probability {self.game.away_team_abv}:{100-max(orderbook.bids)} @ {self.game.home_team_abv}:{max(orderbook.bids)}")
-                            self.log = pd.concat([self.log, pd.DataFrame({"Time": pd.Timestamp.now(), "Predicted": mid_price_projection, "Bid": [max(orderbook.bids)], "Ask": []})], ignore_index=True)
+                            self.log = pd.concat([self.log, pd.DataFrame({"Time": pd.Timestamp.now(), "Predicted": mid_price_projection, "Bid": [max(orderbook.bids)], "Ask": [100]})], ignore_index=True)
 
                         
                     
@@ -76,6 +76,9 @@ class Strategy:
         P_pre = self.game.pregame_winProbability
         P_live = self.game.winProbability
 
+        if P_live == -1:
+            raise ValueError("Live win probability is not available.")
+
         # Standard exponential decay weight
         base_weight = math.exp(-alpha_t * t)
         # Confidence factor: 0 at 0.5, 1 at 0 or 1 (scales up live weight as it moves away from 0.5)
@@ -91,52 +94,4 @@ class Strategy:
         live_weight /= total
 
         return pre_weight * P_pre + live_weight * P_live
-
-
-                # for ticker_dict in self.tickers:
-                #     # If game hasn't started - return
-                #     # If game has started:
-                #     #   Call game.update -> updates the time elapsed and win probability
-                #     #   if game.pre_game_odds is None -> get the tick from 5 minutes before game time -> set as an attr
-                #     #   try to get statsapi win probability
-                #     #   predicted_win_prob = function(pre_game_odds, statsapi_current_odds)
-                #
-                #
-                #      try:
-                #         cost = 0
-                #         available = []
-                #         for ticker, mult in ticker_dict.items():
-                #             ob = relevant_orderbooks[ticker]
-                #
-                #             if mult == 1:  # Buy at ASK
-                #                 if not ob.asks:
-                #                     raise Exception("Orderbook must have ask liquidity for a buy.")
-                #                 else:
-                #                     best_ask = min(ob.asks)
-                #                     cost += best_ask
-                #                     available += [ob.asks[best_ask]]
-                #             elif mult == -1:  # Sell at BID
-                #                 if not ob.bids:
-                #                     raise Exception("Orderbook must have bid liquidity for a buy.")
-                #                 else:
-                #                     best_bid = max(ob.bids)
-                #                     cost += 100 - best_bid
-                #                     available += [ob.bids[best_bid]]
-                #
-                #         logging.warning(f"COST: {cost}")
-                #         #self.costs[ticker].append(cost)
-                #         if cost < 102:
-                #             logging.warning(datetime.now().strftime("%H:%M:%S") + ": PROFITABLE TRADE: " + str(ticker_dict) + f". Total Cost: {cost} Available Contracts: {min(available)}")
-                #             with open("log.txt", "a") as log_file:
-                #                 log_file.write(f"[{datetime.now()}] PROFITABLE TRADE: " + str(ticker_dict) + f". Total Cost: {cost} Available Contracts: {min(available)}\n")
-                #                 log_file.write("TICKERS: " + ", ".join(map(str, ticker_dict.keys())) + "\n")
-                #                 log_file.write("MULTIPLIERS: " + ", ".join(map(str, ticker_dict.values())) + "\n")
-                #                 for ticker in ticker_dict.keys():
-                #                     ob = relevant_orderbooks[ticker]
-                #                     log_file.write(f"{ticker} ORDERBOOK: BIDS: " + str(ob.bids) + " ASKS: " + str(ob.asks) + "\n")
-                #                 log_file.write("\n")
-                #      except Exception as e:
-                #         continue
-
-                #logging.info(f"Placing order from strategy: {bid}/{bid_vol}, {ask}/{ask_vol}")
-                #await self.order_manager.place_order(bid, bid_vol, ask, ask_vol)
+    

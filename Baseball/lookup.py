@@ -1,5 +1,5 @@
 mlb_teams = {
-    "AZ": "Arizona Diamondbacks",
+    "ARI": "Arizona Diamondbacks",
     "ATH": "Athletics",
     "ATL": "Atlanta Braves",
     "BAL": "Baltimore Orioles",
