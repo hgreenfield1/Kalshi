@@ -1,9 +1,10 @@
 import statsapi
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from Infrastructure.market import Market
 from Baseball.lookup import mlb_teams
 from Baseball.win_calculator import getProbability
+import Baseball.date_helpers as date_helpers
 
 # statsapi.get('game', {'gamePk': 565997})
 # statsapi.get('game_timestamps', {'gamePk': 565997})
@@ -82,7 +83,7 @@ class BaseballGame:
         if not timestamp:
             game_data = statsapi.get('game', {'gamePk': self.game_id})
         else:
-            timestamp = BaseballGame.convert_utc_to_local(timestamp)
+            timestamp = date_helpers.convert_utc_to_game_timestamp(timestamp)
             game_data = statsapi.get('game', {'gamePk': self.game_id, 'timecode': timestamp})
 
         self.status = game_data['gameData']['status']['detailedState']
@@ -113,7 +114,9 @@ class BaseballGame:
             self.outs = 3
             self.strikes = 3
 
-        elif self.status == "Pre-Game":
+        elif self.status == "Pre-Game" or self.status == "Delayed Start":
+            if self.status == "Delayed Start":
+                logging.warning(f"Game {self.game_id} has a delayed start. Status: {self.status}")
             self.inning = 1
             self.isTopInning = True
             self.outs = 0
@@ -195,20 +198,3 @@ class BaseballGame:
         else:
             raise ValueError(f"Unknown base state: {bases}")
         
-
-    staticmethod 
-    def convert_utc_to_local(ts_str):
-        """
-        Converts a UTC ISO timestamp ('%Y-%m-%dT%H:%M:%SZ') to format as 'yyyymmdd_hhmmss'.
-        If already in 'yyyymmdd_hhmmss' format, returns unchanged.
-        """
-        custom_fmt = "%Y%m%d_%H%M%S"
-        iso_fmt = "%Y-%m-%dT%H:%M:%SZ"
-        try:
-            # Already in custom format
-            datetime.strptime(ts_str, custom_fmt)
-            return ts_str
-        except ValueError:
-            # Convert from UTC ISO to local time
-            dt_utc = datetime.strptime(ts_str, iso_fmt).replace(tzinfo=timezone.utc)
-            return dt_utc.strftime(custom_fmt)

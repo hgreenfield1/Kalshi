@@ -36,7 +36,7 @@ async def main():
     }
 
     #market = list(market_game_pairs.keys())[0]
-    home_team = "SEA"
+    home_team = "STL"
     market = next(
         (m for m, g in market_game_pairs.items() if g.home_team_abv == home_team),
         None

@@ -114,14 +114,20 @@ class KalshiHttpClient(KalshiBaseClient):
         params = {k: v for k, v in params.items() if v is not None}
         return self.get(self.markets_url + '/trades', params=params)
 
-    def get_markets(self, series_tickers: str | list) -> dict[str: Market]:
+    def get_markets(self, series_tickers: str | list, status="open") -> dict[str: Market]:
         if isinstance(series_tickers, str):
             series_tickers = [series_tickers]
 
         market_dict = {}
         for series_ticker in series_tickers:
-            series = self.get(self.markets_url + "?series_ticker=" + series_ticker + "&status=open")
-            for market in series['markets']:
+            series_list = []
+            series_response = self.get(self.markets_url + "?series_ticker=" + series_ticker + "&status=" + status + "&limit=999")
+            series_list += series_response['markets']
+            while series_response['cursor'] != "":
+                series_response = self.get(self.markets_url + "?series_ticker=" + series_ticker + "&status=" + status + "&limit=999&cursor=" + series_response['cursor'])
+                series_list += series_response['markets']
+
+            for market in series_list:
                 market = Market(market)
                 market_dict[market.ticker] = market
 
