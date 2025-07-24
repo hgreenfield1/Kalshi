@@ -25,7 +25,15 @@ def market_to_game(market: Market):
     teams = data[7:]
     is_doubleheader_g2 = "G2" in teams
     team2 = teams.replace(team1, '', 1)
-    team2 = team2.replace("G2", "", 1) 
+    if "G2" in team2:
+        logging.warning(f"G2 of doubleheader {team1} vs {team2} found in market ticker. Removing G2 from team2.")
+        team2 = team2.replace("G2", "", 1) 
+    if "G1" in team2:
+        logging.warning(f"G1 of doubleheader {team1} vs {team2} found in market ticker. Removing G1 from team2.")
+        team2 = team2.replace("G1", "", 1)
+    if "2" in team2:
+        logging.warning(f"G2 of doubleheader {team1} vs {team2} found in market ticker. Removing 2 from team2.")
+        team2 = team2.replace("2", "", 1)
 
     # Convert month abbreviation to number
     date_obj = datetime.strptime(f"{day_str} {month_str} {year}", "%d %b %Y")
@@ -148,14 +156,24 @@ class BaseballGame:
         return min(inning_pct + out_pct + strike_pct, 1)
 
     def update_pregame_win_probability(self, market, http_client):
-        candlestick = http_client.get_market_candelstick(market.ticker, market.series_ticker, self.start_time, self.start_time, 1)
-        if candlestick['candlesticks'][0]['price']['mean'] is not None:
-            self.pregame_winProbability = candlestick['candlesticks'][0]['price']['mean']
+        start_time = self.start_time
+        end_time = date_helpers.add_min_to_utc_timestamp(self.start_time, 10)  # Get pregame data for the hour before the game starts        
+        candlestick = http_client.get_market_candelstick(market.ticker, market.series_ticker, start_time, end_time, 1)
+
+        if len(candlestick['candlesticks']) == 0:
+            raise Exception("No pregame candlestick data available for this game.")
         else:
-            if candlestick['candlesticks'][0]['yes_bid']['close'] is not None:
-                self.pregame_winProbability = candlestick['candlesticks'][0]['yes_bid']['close']
+            if candlestick['candlesticks'][-1]['price']['mean'] is not None:
+                self.pregame_winProbability = candlestick['candlesticks'][-1]['price']['mean']
             else:
-                Exception("Pregame win probability is unavailable.")
+                if candlestick['candlesticks'][-1]['yes_bid']['close'] is not None and candlestick['candlesticks'][-1]['yes_ask']['close'] is not None:
+                    self.pregame_winProbability = (candlestick['candlesticks'][-1]['yes_bid']['close'] + candlestick['candlesticks'][-1]['yes_ask']['close']) / 2
+                elif candlestick['candlesticks'][-1]['yes_bid']['close'] is not None:
+                    self.pregame_winProbability = candlestick['candlesticks'][-1]['yes_bid']['close'] + 2
+                elif candlestick['candlesticks'][-1]['yes_bid']['close'] is not None:
+                    self.pregame_winProbability = candlestick['candlesticks'][-1]['yes_ask']['close'] - 2
+                else:
+                    Exception("Pregame win probability is unavailable.")
 
     def roll_status(self):
         if self.strikes >= 3:

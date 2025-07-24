@@ -27,9 +27,15 @@ class BacktestRunner:
             
             if self.game.status == "In Progress":
                 if self.game.pregame_winProbability == -1:
-                    self.game.update_pregame_win_probability(self.market, self.http_client)
+                    try:
+                        self.game.update_pregame_win_probability(self.market, self.http_client)
+                    except:
+                        logging.error("Unable to get pre-game win probability for game.")
+                        return 1
+
                     if self.game.pregame_winProbability == -1:
                         logging.error(f"Unable to get pre-game win probability for {self.game.away_team_abv} @ {self.game.home_team_abv}")
+                        return 1
                     
                 self.execute_strategy(timestamp)
 
@@ -38,7 +44,7 @@ class BacktestRunner:
             elif self.game.status == "Final":
                 logging.info(f"{timestamp}: Game complete for {self.game.away_team_abv} @ {self.game.home_team_abv}")
                 self.strategy.post_process(self.game, csv=True)
-                break
+                return 0
             
 
     

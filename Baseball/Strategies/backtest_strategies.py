@@ -2,17 +2,23 @@ import logging
 import math
 from Baseball.BaseballGame import BaseballGame
 from Baseball.TradingStrategy import BacktestStrategy
+from Baseball.date_helpers import minutes_between_utc_timestamps
 
 
 class SimpleBacktestStrategy(BacktestStrategy):
-    def __init__(self):
+    def __init__(self, prediction_path=None):
         super().__init__()
         self.min_positions = -10
         self.max_positions = 10
+        self.last_buy_ts = None
+        self.last_sell_ts = None
+        self.trade_cooldown = 10
+        if prediction_path:
+            self.prediction_path = prediction_path
 
     def calculate_expected_win_prob(self, game: BaseballGame) -> float:
-        alpha_t = 4
-        alpha_prob = 8
+        alpha_t = 6 # Tunes the decay of pre-game probabilities as game progresses
+        alpha_prob = 12 # Tunes the weighting of live vs pre-game probabilities as live prob moves away from 0.5
         t = game.pctPlayed
         P_pre = game.pregame_winProbability
         P_live = game.winProbability
@@ -37,7 +43,7 @@ class SimpleBacktestStrategy(BacktestStrategy):
 
         return round(pre_weight * P_pre + live_weight * P_live, 2)
 
-    def calculate_signal(self, mid_price: float, bid_price: float, ask_price: float) -> str:
+    def calculate_signal(self, timestamp, mid_price: float, bid_price: float, ask_price: float) -> str:
         if mid_price is None:
             logging.warning(f"---- Mid price projection is None. Unable to calculate signal.")
             return
@@ -46,13 +52,23 @@ class SimpleBacktestStrategy(BacktestStrategy):
             logging.warning(f"---- No bid/ask prices available. Unable to calculate signal.")
             return
 
-        if mid_price < ask_price - 10 and bid_price < 97:
+        if mid_price < bid_price - 15 and bid_price < 85:
             if self.positions > self.min_positions and self.cash >= bid_price / 100:
-                return -1
+                if self.last_sell_ts is None:
+                    return -1
+                else:
+                    time_dif = minutes_between_utc_timestamps(self.last_sell_ts, timestamp)
+                    if time_dif >= self.trade_cooldown:
+                        return -1
 
-        if mid_price > ask_price + 10 and ask_price > 3:
+        if mid_price > ask_price + 15 and ask_price > 15:
             if self.positions < self.max_positions and self.cash >= ask_price / 100:
-                return +1
+                if self.last_buy_ts is None:
+                    return 1
+                else:
+                    time_dif = minutes_between_utc_timestamps(self.last_buy_ts, timestamp)
+                    if time_dif >= self.trade_cooldown:
+                        return 1
             
         return 0
 
@@ -62,13 +78,15 @@ class SimpleBacktestStrategy(BacktestStrategy):
         if mid_price and bid_price and ask_price:
             logging.info(f"{timestamp}: Calculating Signal -- Mid Price: {mid_price}, Bid Price: {bid_price}, Ask Price: {ask_price}")
             
-            signal = self.calculate_signal(mid_price, bid_price, ask_price)
+            signal = self.calculate_signal(timestamp, mid_price, bid_price, ask_price)
 
             if signal:
                 logging.info(f"-- Signal generated: {signal} positions")
                 if signal > 0:
+                    self.last_buy_ts = timestamp
                     self.buy(ask_price, signal)
                 elif signal < 0:
+                    self.last_sell_ts = timestamp
                     self.sell(bid_price, -signal)
 
         else:

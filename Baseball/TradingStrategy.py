@@ -30,6 +30,7 @@ class TradingStrategy(ABC):
 class BacktestStrategy(TradingStrategy):
     def __init__(self):
         super().__init__()
+        self.prediction_path = "probability_predictions.csv"
 
     def calculate_expected_win_prob(self) -> float:
         raise NotImplementedError
@@ -41,9 +42,6 @@ class BacktestStrategy(TradingStrategy):
         raise NotImplementedError
     
     def post_process(self, game, csv=False):
-        if csv:
-            logging.info("Appending predictions to CSV file.")
-            self.append_prediction_to_csv(self.prediction_log, game.net_score > 0)
         if self.positions != 0:
             logging.warning(f"Settling remaining positions at end of backtest: {self.positions}")
             if game.net_score > 0:
@@ -52,11 +50,14 @@ class BacktestStrategy(TradingStrategy):
                 last_bid = last_ask = 0
 
             self.close_all_positions(last_bid, last_ask)
-
+        if csv:
+            logging.info("Appending predictions to CSV file.")
+            self.append_prediction_to_csv(self.prediction_log, game.net_score > 0)
+            
         logging.info(f"Final cash: {self.cash}, Final positions: {self.positions}")
         logging.info("Backtest completed successfully.")
 
-    def buy(self, price, position_size=1):
+    def buy(self, ask, position_size=1):
         """
         Buy contracts.
         - If net short, buying covers short position (generates cash).
@@ -66,24 +67,24 @@ class BacktestStrategy(TradingStrategy):
             # Cover short position first (generates cash)
             cover_qty = min(position_size, abs(self.positions))
             self.positions += cover_qty
-            self.cash += cover_qty * (100 - price) / 100
+            self.cash += round(cover_qty * (100 - ask) / 100, 2)
             position_size -= cover_qty
             logging.info(f"Covered {cover_qty} existing short contracts. New position: {self.positions}")
         if position_size > 0:
             # Add to long position (uses cash)
             self.positions += position_size
-            self.cash -= position_size * price / 100
+            self.cash -= round(position_size * ask / 100, 2)
             logging.info(f"Bought {position_size} new contracts. New position: {self.positions}")
 
         self.trade_log.append({
             'action': 'buy',
-            'price': price,
+            'price': ask,
             'position_size': position_size,
             'positions': self.positions,
             'cash': self.cash
         })
 
-    def sell(self, price, position_size=1):
+    def sell(self, bid, position_size=1):
         """
         Sell contracts.
         - If net long, selling reduces long position (generates cash).
@@ -93,18 +94,18 @@ class BacktestStrategy(TradingStrategy):
             # Sell from long position first (generates cash)
             sell_qty = min(position_size, self.positions)
             self.positions -= sell_qty
-            self.cash += sell_qty * price / 100
+            self.cash += round(sell_qty * bid / 100, 2)
             position_size -= sell_qty
             logging.info(f"Sold {sell_qty} existing long contracts. New position: {self.positions}")
         if position_size > 0:
             # Open/increase short position (uses cash)
             self.positions -= position_size
-            self.cash -= position_size * price / 100
+            self.cash -= round(position_size * (100 - bid) / 100, 2)
             logging.info(f"Sold short {position_size} new contracts. New position: {self.positions}")
 
         self.trade_log.append({
             'action': 'sell',
-            'price': price,
+            'price': bid,
             'position_size': position_size,
             'positions': self.positions,
             'cash': self.cash
@@ -118,7 +119,7 @@ class BacktestStrategy(TradingStrategy):
         logging.info(f"Closed all positions: Cash={self.cash}, Positions={self.positions}")
 
     def append_prediction_to_csv(self, prediction_log, is_win):
-        CSV_PATH = Path("probability_predictions.csv")
+        CSV_PATH = Path(self.prediction_path)
         file_exists = CSV_PATH.exists()
 
         with open(CSV_PATH, mode='a', newline='') as file:
@@ -126,7 +127,7 @@ class BacktestStrategy(TradingStrategy):
             
             # Write header if file doesn't exist
             if not file_exists:
-                writer.writerow(["game_id", "timestamp", "team", "predicted_prob", "actual_outcome"])
+                writer.writerow(["game_id", "timestamp", "predicted_prob", "bid_price", "ask_price", "cash", "positions", "signal", "actual_outcome"])
             
             for entry in prediction_log:
                 writer.writerow([

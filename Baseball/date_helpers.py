@@ -55,3 +55,21 @@ def round_to_next_minute(ts):
         dt += timedelta(seconds=(60 - dt.second))
         dt = dt.replace(second=0)
     return dt.strftime(fmt)
+
+def add_min_to_utc_timestamp(dt, minutes):
+    dt = datetime.strptime(dt, '%Y-%m-%dT%H:%M:%SZ')
+    dt = dt.replace(tzinfo=timezone.utc)
+
+    dt = dt + timedelta(minutes=minutes)
+
+    return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+def minutes_between_utc_timestamps(ts1, ts2):
+    """
+    Returns the number of whole minutes between two UTC timestamp strings in the format '%Y-%m-%dT%H:%M:%SZ'.
+    """
+    fmt = '%Y-%m-%dT%H:%M:%SZ'
+    dt1 = datetime.strptime(ts1, fmt)
+    dt2 = datetime.strptime(ts2, fmt)
+    delta = dt2 - dt1
+    return int(delta.total_seconds() // 60)

@@ -1,11 +1,12 @@
 import logging
-import asyncio
+import pandas as pd
 import statsapi
 import Infrastructure.Clients.get_clients as get_clients
 import Baseball.date_helpers as date_helpers
 from Baseball.BaseballGame import market_to_game
 from Baseball.Backtest.BacktestRunner import BacktestRunner
 from Baseball.Strategies.backtest_strategies import SimpleBacktestStrategy
+from Baseball.Backtest.analyze import plot_calibration_curve
 
 
 logging.basicConfig(level=logging.INFO)
@@ -17,31 +18,44 @@ logging.basicConfig(level=logging.INFO)
 # Implement sqllite for analysis
 
 def main():
+    prediction_path = "probability_predictions_v7.csv"
     http_client = get_clients.get_http_client()
-    #market = http_client.get_market_by_ticker('KXMLBGAME-25JUN24BOSLAA-LAA')
-    #game = market_to_game(market)
     all_markets = http_client.get_markets(['KXMLBGAME'], status="settled")
+    all_markets = dict(reversed(list(all_markets.items())))
 
-    for market in all_markets.values():
+    for market in list(all_markets.values())[50:]:
         game = market_to_game(market)
         if market.ticker.split('-')[-1] != game.home_team_abv:
             continue
 
         game_timestamps = statsapi.get('game_timestamps', {'gamePk': game.game_id})
-        start_time = game_timestamps[1]
+        start_time = game_timestamps[2]
         end_time = game_timestamps[-1]
         timestamps = date_helpers.get_backtest_timestamps(start_time, end_time)
         
-        strategy = SimpleBacktestStrategy()
+        schedule = statsapi.schedule(game_id=game.game_id)
+        status = schedule[0]['status']
+        if status != "Final":
+            logging.info(f"Skipping backtest for {game.home_team_abv} vs {game.away_team_abv} because the game is not final.")
+            continue
+
+        strategy = SimpleBacktestStrategy(prediction_path=prediction_path)
 
         backtest = BacktestRunner(game, market, http_client, strategy)
         backtest.run(timestamps)
 
         print("Done with backtest for game:", game.home_team_abv, "vs", game.away_team_abv)
         
-        if all_markets.values().index(market) == 24:
-            input("Paused after 25 markets.")
+        if list(all_markets.values()).index(market) >= 2000:
+            input("Paused after 2000 markets.")
 
+    df = pd.read_csv(prediction_path, index_col=False)
+    num_unique_games = df['game_id'].nunique()
+    final_cash_sum = df.groupby('game_id')['cash'].last().sum()
+    print(f"Number of unique games: {num_unique_games}")
+    print(f"Sum of final cash for each game: {final_cash_sum}")
+    print(f"Cash per game: {final_cash_sum/num_unique_games}")
+    plot_calibration_curve(df, n_bins=20)
 
 if __name__ == "__main__":
     main()
