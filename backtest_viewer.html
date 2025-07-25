@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baseball Trading Bot - Backtest Results</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            text-align: center;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-weight: 600;
+            color: #555;
+        }
+        input, select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .metric-card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .metric-label {
+            color: #666;
+            margin-top: 8px;
+        }
+        .charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        .chart-title {
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .table-container {
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+            overflow: hidden;
+        }
+        .table-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e9ecef;
+            font-weight: 600;
+        }
+        .table-content {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .positive {
+            color: #28a745;
+        }
+        .negative {
+            color: #dc3545;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .section-header {
+            margin: 40px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #007bff;
+        }
+        .section-header h2 {
+            color: #007bff;
+            margin: 0;
+            font-size: 1.5em;
+        }
+        .section-divider {
+            height: 2px;
+            background: linear-gradient(to right, #007bff, transparent);
+            margin: 50px 0 30px 0;
+        }
+        .required {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        @media (max-width: 768px) {
+            .charts {
+                grid-template-columns: 1fr;
+            }
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Baseball Trading Bot - Backtest Results</h1>
+        
+        <div id="status" class="status loading">
+            Loading data from database...
+        </div>
+        
+        <!-- Section 1: Overall Strategy/Model Statistics -->
+        <div class="section-header">
+            <h2>Overall Strategy Performance</h2>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="strategyFilter">Strategy Version: <span class="required">*</span></label>
+                <select id="strategyFilter" required>
+                    <option value="">Select Strategy</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="modelFilter">Model Version: <span class="required">*</span></label>
+                <select id="modelFilter" required>
+                    <option value="">Select Model</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="dateStart">Start Date:</label>
+                <input type="date" id="dateStart">
+            </div>
+            <div class="control-group">
+                <label for="dateEnd">End Date:</label>
+                <input type="date" id="dateEnd">
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadOverallData()">Load Overall Statistics</button>
+            </div>
+        </div>
+
+        <div class="metrics" id="overallMetrics">
+            <div class="loading">Select strategy and model to view overall statistics...</div>
+        </div>
+
+        <div class="charts" id="overallCharts" style="display: none;">
+            <div class="chart-container">
+                <div class="chart-title">Cash Over Time (All Games)</div>
+                <canvas id="overallCashChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">Win Probability vs Market Price</div>
+                <canvas id="overallProbChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Section 2: Single Game Analysis -->
+        <div class="section-divider"></div>
+        
+        <div class="section-header">
+            <h2>Single Game Analysis</h2>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="gameAnalysisFilter">Select Game:</label>
+                <select id="gameAnalysisFilter">
+                    <option value="">Select a game to analyze</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadGameAnalysis()">Analyze Game</button>
+            </div>
+        </div>
+
+        <div class="metrics" id="gameMetrics">
+            <div class="loading">Select a game to view detailed analysis...</div>
+        </div>
+
+        <div class="charts" id="gameCharts" style="display: none;">
+            <div class="chart-container full-width">
+                <div class="chart-title">Price Evolution During Game</div>
+                <canvas id="gamePriceChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">Signal and Positions</div>
+                <canvas id="gameSignalChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">Cash Evolution</div>
+                <canvas id="gameCashChart"></canvas>
+            </div>
+        </div>
+
+        <div class="table-container" id="gameTableContainer" style="display: none;">
+            <div class="table-header">Game Trade History</div>
+            <div class="table-content">
+                <table id="gameDataTable">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Predicted Prob</th>
+                            <th>Bid Price</th>
+                            <th>Ask Price</th>
+                            <th>Cash</th>
+                            <th>Positions</th>
+                            <th>Signal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gameTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        let overallData = [];
+        let gameData = [];
+        let overallCashChart, overallProbChart;
+        let gamePriceChart, gameSignalChart, gameCashChart;
+
+        // Load initial data on page load
+        window.addEventListener('load', function() {
+            loadInitialData();
+        });
+
+        async function loadInitialData() {
+            try {
+                updateStatus('loading', 'Loading initial data...');
+                
+                // Load filter options
+                await Promise.all([
+                    loadStrategyOptions(),
+                    loadModelOptions()
+                ]);
+                
+                updateStatus('success', 'Select strategy and model to view statistics');
+                
+            } catch (error) {
+                console.error('Error loading initial data:', error);
+                updateStatus('error', `Error loading data: ${error.message}`);
+            }
+        }
+
+        async function loadOverallData() {
+            const strategy = document.getElementById('strategyFilter').value;
+            const model = document.getElementById('modelFilter').value;
+            
+            if (!strategy || !model) {
+                updateStatus('error', 'Please select both strategy and model versions');
+                return;
+            }
+            
+            try {
+                updateStatus('loading', 'Loading overall statistics...');
+                
+                // Load game options for selected strategy/model
+                await loadGameOptions(strategy, model);
+                
+                // Load overall data
+                await loadPredictions();
+                
+                updateStatus('success', 'Overall statistics loaded successfully');
+                
+            } catch (error) {
+                console.error('Error loading overall data:', error);
+                updateStatus('error', `Error loading data: ${error.message}`);
+            }
+        }
+
+        async function loadGameAnalysis() {
+            const gameId = document.getElementById('gameAnalysisFilter').value;
+            const strategy = document.getElementById('strategyFilter').value;
+            const model = document.getElementById('modelFilter').value;
+            
+            if (!gameId) {
+                alert('Please select a game to analyze');
+                return;
+            }
+            
+            if (!strategy || !model) {
+                alert('Please select strategy and model first in the overall section');
+                return;
+            }
+            
+            try {
+                await loadGamePredictions(gameId, strategy, model);
+            } catch (error) {
+                console.error('Error loading game analysis:', error);
+                alert(`Error loading game data: ${error.message}`);
+            }
+        }
+
+        async function loadStrategyOptions() {
+            const response = await fetch(`${API_BASE}/strategies`);
+            const data = await response.json();
+            
+            const select = document.getElementById('strategyFilter');
+            select.innerHTML = '<option value="">All Strategies</option>';
+            
+            data.strategies.forEach(strategy => {
+                const option = document.createElement('option');
+                option.value = strategy.strategy_version;
+                option.textContent = `${strategy.strategy_version} (${strategy.game_count} games)`;
+                select.appendChild(option);
+            });
+        }
+
+        async function loadModelOptions() {
+            const response = await fetch(`${API_BASE}/models`);
+            const data = await response.json();
+            
+            const select = document.getElementById('modelFilter');
+            select.innerHTML = '<option value="">All Models</option>';
+            
+            data.models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.prediction_model_version;
+                option.textContent = `${model.prediction_model_version} (${model.game_count} games)`;
+                select.appendChild(option);
+            });
+        }
+
+        async function loadGameOptions(strategy = null, model = null) {
+            const params = new URLSearchParams();
+            if (strategy) params.append('strategy_version', strategy);
+            if (model) params.append('model_version', model);
+            
+            const response = await fetch(`${API_BASE}/games?${params}`);
+            const data = await response.json();
+            
+            const select = document.getElementById('gameAnalysisFilter');
+            select.innerHTML = '<option value="">Select a game to analyze</option>';
+            
+            data.games.forEach(game => {
+                const option = document.createElement('option');
+                option.value = game.game_id;
+                const outcome = game.outcome === 1 ? 'W' : game.outcome === 0 ? 'L' : 'TBD';
+                const date = new Date(game.start_time).toLocaleDateString();
+                option.textContent = `Game ${game.game_id} (${date}) - ${outcome}`;
+                select.appendChild(option);
+            });
+            
+            // Set date range based on available data
+            if (data.games.length > 0) {
+                const dates = data.games.map(g => new Date(g.start_time).toISOString().split('T')[0]);
+                const minDate = Math.min(...dates.map(d => new Date(d)));
+                const maxDate = Math.max(...dates.map(d => new Date(d)));
+                
+                document.getElementById('dateStart').value = new Date(minDate).toISOString().split('T')[0];
+                document.getElementById('dateEnd').value = new Date(maxDate).toISOString().split('T')[0];
+            }
+        }
+
+        async function loadPredictions() {
+            const params = new URLSearchParams();
+            
+            const strategy = document.getElementById('strategyFilter').value;
+            const model = document.getElementById('modelFilter').value;
+            const startDate = document.getElementById('dateStart').value;
+            const endDate = document.getElementById('dateEnd').value;
+            
+            params.append('strategy_version', strategy);
+            params.append('model_version', model);
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            params.append('limit', 50000); // High limit for overall analysis
+            
+            const response = await fetch(`${API_BASE}/predictions?${params}`);
+            const data = await response.json();
+            
+            overallData = data.predictions || [];
+            
+            updateOverallDisplay();
+        }
+
+        async function loadGamePredictions(gameId, strategy, model) {
+            const params = new URLSearchParams();
+            params.append('game_id', gameId);
+            params.append('strategy_version', strategy);
+            params.append('model_version', model);
+            
+            const response = await fetch(`${API_BASE}/predictions?${params}`);
+            const data = await response.json();
+            
+            gameData = data.predictions || [];
+            
+            updateGameDisplay();
+        }
+
+        function updateStatus(type, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${type}`;
+            statusEl.textContent = message;
+        }
+
+        function updateOverallDisplay() {
+            updateOverallMetrics();
+            updateOverallCharts();
+            
+            document.getElementById('overallCharts').style.display = 'grid';
+        }
+
+        function updateGameDisplay() {
+            updateGameMetrics();
+            updateGameCharts();
+            updateGameTable();
+            
+            document.getElementById('gameCharts').style.display = 'grid';
+            document.getElementById('gameTableContainer').style.display = 'block';
+        }
+
+        async function updateOverallMetrics() {
+            try {
+                // Get performance metrics from API
+                const params = new URLSearchParams();
+                const strategy = document.getElementById('strategyFilter').value;
+                const model = document.getElementById('modelFilter').value;
+                
+                params.append('strategy_version', strategy);
+                params.append('model_version', model);
+                
+                const response = await fetch(`${API_BASE}/performance?${params}`);
+                const metrics = await response.json();
+                
+                const games = [...new Set(overallData.map(row => row.game_id))];
+                const totalTrades = overallData.filter(row => row.signal && row.signal !== 0).length;
+                const finalCash = overallData.length > 0 ? Math.max(...overallData.map(row => parseFloat(row.cash) || 100)) : 100;
+                const roi = metrics.roi_percent ? metrics.roi_percent.toFixed(2) : '0.00';
+                const winRate = metrics.win_rate ? (metrics.win_rate * 100).toFixed(1) : 'N/A';
+                const accuracy = metrics.prediction_accuracy ? (metrics.prediction_accuracy * 100).toFixed(1) : 'N/A';
+
+                const metricsHtml = `
+                    <div class="metric-card">
+                        <div class="metric-value">${games.length}</div>
+                        <div class="metric-label">Games Analyzed</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${totalTrades}</div>
+                        <div class="metric-label">Total Trades</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value ${parseFloat(roi) >= 0 ? 'positive' : 'negative'}">${roi}%</div>
+                        <div class="metric-label">Return on Investment</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">$${finalCash.toFixed(2)}</div>
+                        <div class="metric-label">Final Cash</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${winRate}%</div>
+                        <div class="metric-label">Win Rate</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${accuracy}%</div>
+                        <div class="metric-label">Prediction Accuracy</div>
+                    </div>
+                `;
+                
+                document.getElementById('overallMetrics').innerHTML = metricsHtml;
+                
+            } catch (error) {
+                console.error('Error updating overall metrics:', error);
+                document.getElementById('overallMetrics').innerHTML = '<div class="loading">Error loading metrics</div>';
+            }
+        }
+
+        function updateGameMetrics() {
+            if (gameData.length === 0) {
+                document.getElementById('gameMetrics').innerHTML = '<div class="loading">No data for selected game</div>';
+                return;
+            }
+            
+            const gameId = gameData[0].game_id;
+            const totalPredictions = gameData.length;
+            const trades = gameData.filter(row => row.signal && row.signal !== 0).length;
+            const startCash = gameData.length > 0 ? parseFloat(gameData[gameData.length - 1].cash) || 100 : 100;
+            const endCash = gameData.length > 0 ? parseFloat(gameData[0].cash) || 100 : 100;
+            const gameProfit = endCash - startCash;
+            const avgPrediction = gameData.filter(row => row.predicted_prob).reduce((sum, row) => sum + parseFloat(row.predicted_prob), 0) / gameData.filter(row => row.predicted_prob).length;
+            const outcome = gameData[0].actual_outcome;
+            
+            const metricsHtml = `
+                <div class="metric-card">
+                    <div class="metric-value">${gameId}</div>
+                    <div class="metric-label">Game ID</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${totalPredictions}</div>
+                    <div class="metric-label">Total Predictions</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${trades}</div>
+                    <div class="metric-label">Trades Made</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value ${gameProfit >= 0 ? 'positive' : 'negative'}">$${gameProfit.toFixed(2)}</div>
+                    <div class="metric-label">Game P&L</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${avgPrediction ? avgPrediction.toFixed(1) + '%' : 'N/A'}</div>
+                    <div class="metric-label">Avg Prediction</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${outcome === 1 ? '✓ Win' : outcome === 0 ? '✗ Loss' : 'TBD'}</div>
+                    <div class="metric-label">Actual Outcome</div>
+                </div>
+            `;
+            
+            document.getElementById('gameMetrics').innerHTML = metricsHtml;
+        }
+
+
+        function updateOverallCharts() {
+            // Cash over time chart (all games)
+            const cashData = overallData.map(row => ({
+                x: new Date(row.timestamp),
+                y: parseFloat(row.cash) || 100
+            }));
+
+            if (overallCashChart) overallCashChart.destroy();
+            const cashCtx = document.getElementById('overallCashChart').getContext('2d');
+            overallCashChart = new Chart(cashCtx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Cash',
+                        data: cashData,
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'day'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Cash ($)'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Probability vs Price scatter plot
+            const probData = overallData
+                .filter(row => row.predicted_prob && row.bid_price && row.ask_price)
+                .map(row => ({
+                    x: parseFloat(row.predicted_prob),
+                    y: (parseFloat(row.bid_price) + parseFloat(row.ask_price)) / 2
+                }));
+
+            if (overallProbChart) overallProbChart.destroy();
+            const probCtx = document.getElementById('overallProbChart').getContext('2d');
+            overallProbChart = new Chart(probCtx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Prediction vs Market',
+                        data: probData,
+                        backgroundColor: 'rgba(0, 123, 255, 0.6)',
+                        borderColor: '#007bff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Predicted Probability'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Market Price'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateGameCharts() {
+            // Sort game data by timestamp for proper chronological order
+            const sortedGameData = [...gameData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            // Price evolution chart
+            const priceData = {
+                labels: sortedGameData.map(row => new Date(row.timestamp)),
+                datasets: [
+                    {
+                        label: 'Predicted Probability',
+                        data: sortedGameData.map(row => parseFloat(row.predicted_prob)),
+                        borderColor: '#28a745',
+                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Bid Price',
+                        data: sortedGameData.map(row => parseFloat(row.bid_price)),
+                        borderColor: '#dc3545',
+                        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Ask Price',
+                        data: sortedGameData.map(row => parseFloat(row.ask_price)),
+                        borderColor: '#ffc107',
+                        backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                        yAxisID: 'y'
+                    }
+                ]
+            };
+
+            if (gamePriceChart) gamePriceChart.destroy();
+            const priceCtx = document.getElementById('gamePriceChart').getContext('2d');
+            gamePriceChart = new Chart(priceCtx, {
+                type: 'line',
+                data: priceData,
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute'
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Price/Probability'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Signal and positions chart
+            const signalData = {
+                labels: sortedGameData.map(row => new Date(row.timestamp)),
+                datasets: [
+                    {
+                        label: 'Signal',
+                        data: sortedGameData.map(row => parseFloat(row.signal) || 0),
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        yAxisID: 'y',
+                        type: 'line'
+                    },
+                    {
+                        label: 'Positions',
+                        data: sortedGameData.map(row => parseFloat(row.positions) || 0),
+                        borderColor: '#6f42c1',
+                        backgroundColor: 'rgba(111, 66, 193, 0.1)',
+                        yAxisID: 'y1',
+                        type: 'line'
+                    }
+                ]
+            };
+
+            if (gameSignalChart) gameSignalChart.destroy();
+            const signalCtx = document.getElementById('gameSignalChart').getContext('2d');
+            gameSignalChart = new Chart(signalCtx, {
+                type: 'line',
+                data: signalData,
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute'
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Signal'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Positions'
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        }
+                    }
+                }
+            });
+
+            // Cash evolution for this game
+            const cashData = sortedGameData.map(row => ({
+                x: new Date(row.timestamp),
+                y: parseFloat(row.cash) || 100
+            }));
+
+            if (gameCashChart) gameCashChart.destroy();
+            const cashCtx = document.getElementById('gameCashChart').getContext('2d');
+            gameCashChart = new Chart(cashCtx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Cash',
+                        data: cashData,
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Cash ($)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateGameTable() {
+            const tbody = document.getElementById('gameTableBody');
+            tbody.innerHTML = '';
+            
+            // Sort by timestamp for chronological order
+            const sortedData = [...gameData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            sortedData.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${new Date(row.timestamp).toLocaleString()}</td>
+                    <td>${row.predicted_prob ? parseFloat(row.predicted_prob).toFixed(2) + '%' : 'N/A'}</td>
+                    <td>${row.bid_price || 'N/A'}</td>
+                    <td>${row.ask_price || 'N/A'}</td>
+                    <td>$${parseFloat(row.cash).toFixed(2)}</td>
+                    <td>${row.positions || '0'}</td>
+                    <td>${row.signal || 'N/A'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
