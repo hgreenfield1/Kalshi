@@ -1,12 +1,12 @@
 import logging
-import csv
-from pathlib import Path
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
+from Baseball.database import BacktestDatabase
 
 
 class TradingStrategy(ABC):
     _version = "1.0.0"
+    _prediction_model_version = "1.0.0"
 
     def __init__(self):
         self.trade_log = []
@@ -17,10 +17,11 @@ class TradingStrategy(ABC):
     @property
     def version(self) -> str:
         return self._version
+    
+    @property
+    def prediction_model_version(self) -> str:
+        return self._prediction_model_version
 
-    @abstractmethod
-    def calculate_expected_win_prob(self) -> float:
-        pass
 
     @abstractmethod
     def calculate_signal(self, mid_price: float, bid_price: float, ask_price: float) -> Any:
@@ -28,12 +29,10 @@ class TradingStrategy(ABC):
 
 
 class BacktestStrategy(TradingStrategy):
-    def __init__(self):
+    def __init__(self, db_path: Optional[str] = None):
         super().__init__()
-        self.prediction_path = "probability_predictions.csv"
+        self.db = BacktestDatabase(db_path) if db_path else BacktestDatabase()
 
-    def calculate_expected_win_prob(self) -> float:
-        raise NotImplementedError
 
     def calculate_signal(self, mid_price: float, bid_price: float, ask_price: float) -> Any:
         raise NotImplementedError
@@ -41,7 +40,7 @@ class BacktestStrategy(TradingStrategy):
     def trade(self, timestamp, game, bid_price: float, ask_price: float):
         raise NotImplementedError
     
-    def post_process(self, game, csv=False):
+    def post_process(self, game, save_to_db=True):
         if self.positions != 0:
             logging.warning(f"Settling remaining positions at end of backtest: {self.positions}")
             if game.net_score > 0:
@@ -50,9 +49,10 @@ class BacktestStrategy(TradingStrategy):
                 last_bid = last_ask = 0
 
             self.close_all_positions(last_bid, last_ask)
-        if csv:
-            logging.info("Appending predictions to CSV file.")
-            self.append_prediction_to_csv(self.prediction_log, game.net_score > 0)
+        
+        if save_to_db:
+            logging.info("Saving predictions to database.")
+            self.save_predictions_to_db(self.prediction_log, game.net_score > 0)
             
         logging.info(f"Final cash: {self.cash}, Final positions: {self.positions}")
         logging.info("Backtest completed successfully.")
@@ -118,26 +118,15 @@ class BacktestStrategy(TradingStrategy):
             self.buy(ask, -self.positions)
         logging.info(f"Closed all positions: Cash={self.cash}, Positions={self.positions}")
 
-    def append_prediction_to_csv(self, prediction_log, is_win):
-        CSV_PATH = Path(self.prediction_path)
-        file_exists = CSV_PATH.exists()
-
-        with open(CSV_PATH, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            
-            # Write header if file doesn't exist
-            if not file_exists:
-                writer.writerow(["game_id", "timestamp", "predicted_prob", "bid_price", "ask_price", "cash", "positions", "signal", "actual_outcome"])
-            
-            for entry in prediction_log:
-                writer.writerow([
-                    entry['game_id'],
-                    entry['timestamp'],
-                    entry['mid_price'],
-                    entry['bid_price'],
-                    entry['ask_price'],
-                    entry['cash'],
-                    entry['positions'],
-                    entry['signal'],
-                    is_win
-                ])
+    def save_predictions_to_db(self, prediction_log, is_win: bool):
+        """Save predictions to SQLite database."""
+        if not prediction_log:
+            logging.warning("No predictions to save to database")
+            return
+        
+        self.db.save_predictions(
+            predictions=prediction_log,
+            actual_outcome=is_win,
+            prediction_model_version=self.prediction_model_version,
+            strategy_version=self.version
+        )

@@ -13,7 +13,7 @@ class BacktestRunner:
         
         self.prices = {}
 
-    def run(self, timestamps):
+    def run(self, timestamps, game_data_cache=None):
         logging.info(f"Starting backtest for game: {self.game.home_team_abv} vs {self.game.away_team_abv}")
 
         self.prices = self.get_market_prices(timestamps)
@@ -22,10 +22,10 @@ class BacktestRunner:
             logging.debug(f"Running strategy for timestamp: {timestamp}")
             
             # Update game
-            self.game.update_status(timestamp)
+            self.game.update_status(timestamp, game_data_cache)
 
             
-            if self.game.status == "In Progress":
+            if self.game.status == "In Progress" and timestamp != timestamps[-1]:
                 if self.game.pregame_winProbability == -1:
                     try:
                         self.game.update_pregame_win_probability(self.market, self.http_client)
@@ -41,9 +41,9 @@ class BacktestRunner:
 
             elif self.game.status == "Pre-Game":
                 logging.info(f"{timestamp}: Game not started yet for {self.game.away_team_abv} @ {self.game.home_team_abv}. Waiting for start time.")
-            elif self.game.status == "Final":
+            elif self.game.status == "Final" or timestamp == timestamps[-1]:
                 logging.info(f"{timestamp}: Game complete for {self.game.away_team_abv} @ {self.game.home_team_abv}")
-                self.strategy.post_process(self.game, csv=True)
+                self.strategy.post_process(self.game, save_to_db=True)
                 return 0
             
 

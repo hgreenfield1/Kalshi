@@ -87,8 +87,10 @@ class BaseballGame:
         self.runner_index = 0
         self.captivating_index = 0
 
-    def update_status(self, timestamp=None):
-        if not timestamp:
+    def update_status(self, timestamp=None, game_data_cache=None):
+        if game_data_cache and timestamp and timestamp in game_data_cache:
+            game_data = game_data_cache[timestamp]
+        elif not timestamp:
             game_data = statsapi.get('game', {'gamePk': self.game_id})
         else:
             timestamp = date_helpers.convert_utc_to_game_timestamp(timestamp)
@@ -157,7 +159,7 @@ class BaseballGame:
 
     def update_pregame_win_probability(self, market, http_client):
         start_time = self.start_time
-        end_time = date_helpers.add_min_to_utc_timestamp(self.start_time, 10)  # Get pregame data for the hour before the game starts        
+        end_time = date_helpers.add_minutes_to_timestamp(self.start_time, 10)  # Get pregame data for the hour before the game starts        
         candlestick = http_client.get_market_candelstick(market.ticker, market.series_ticker, start_time, end_time, 1)
 
         if len(candlestick['candlesticks']) == 0:
