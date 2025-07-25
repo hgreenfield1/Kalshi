@@ -50,6 +50,8 @@ class BacktestAPIHandler(BaseHTTPRequestHandler):
                 response = self.get_database_stats()
             elif path == '/api/performance':
                 response = self.get_performance_metrics(query_params)
+            elif path == '/api/calibration':
+                response = self.get_calibration_data(query_params)
             else:
                 response = {'error': 'Endpoint not found'}
             
@@ -245,6 +247,81 @@ class BacktestAPIHandler(BaseHTTPRequestHandler):
             
             result = cursor.fetchone()
             return dict(result) if result else {}
+    
+    def get_calibration_data(self, query_params: Dict[str, List[str]]) -> Dict[str, Any]:
+        """Get calibration curve data for model predictions."""
+        with self.get_connection() as conn:
+            # Build filters
+            where_clauses = []
+            params = []
+            
+            if 'strategy_version' in query_params and query_params['strategy_version'][0]:
+                where_clauses.append('strategy_version = ?')
+                params.append(query_params['strategy_version'][0])
+            
+            if 'model_version' in query_params and query_params['model_version'][0]:
+                where_clauses.append('prediction_model_version = ?')
+                params.append(query_params['model_version'][0])
+            
+            where_clause = 'WHERE ' + ' AND '.join(where_clauses) if where_clauses else ''
+            where_clause += ' AND actual_outcome IS NOT NULL' + (' AND ' if where_clauses else ' WHERE ')
+            where_clause += 'predicted_prob IS NOT NULL AND bid_price IS NOT NULL AND ask_price IS NOT NULL'
+            
+            # Get raw data for calibration calculation
+            cursor = conn.execute(f"""
+                SELECT predicted_prob, bid_price, ask_price, actual_outcome
+                FROM predictions 
+                {where_clause}
+                ORDER BY predicted_prob
+            """, params)
+            
+            data = cursor.fetchall()
+            
+            if not data:
+                logger.warning(f"No calibration data found with query: {where_clause}, params: {params}")
+                return {'calibration_points': [], 'message': 'No data available for calibration'}
+            
+            logger.info(f"Found {len(data)} data points for calibration")
+            
+            # Calculate calibration bins (10 bins from 0-100)
+            n_bins = 10
+            bin_size = 100 / n_bins
+            calibration_points = []
+            
+            for i in range(n_bins):
+                bin_min = i * bin_size
+                bin_max = (i + 1) * bin_size
+                
+                # Get data points in this bin
+                if i == n_bins - 1:  # Last bin includes the maximum value
+                    bin_data = [row for row in data if bin_min <= row[0] <= bin_max]
+                else:
+                    bin_data = [row for row in data if bin_min <= row[0] < bin_max]
+                
+                if len(bin_data) < 3:  # Skip bins with too few data points (reduced from 5 to 3)
+                    continue
+                
+                # Calculate averages for this bin
+                avg_predicted = sum(row[0] for row in bin_data) / len(bin_data)
+                avg_bid = sum(row[1] for row in bin_data) / len(bin_data)
+                avg_ask = sum(row[2] for row in bin_data) / len(bin_data)
+                actual_win_rate = sum(row[3] for row in bin_data) / len(bin_data) * 100  # Convert to percentage
+                count = len(bin_data)
+                
+                calibration_points.append({
+                    'bin_min': bin_min,
+                    'bin_max': bin_max,
+                    'avg_predicted': avg_predicted,
+                    'avg_bid': avg_bid,
+                    'avg_ask': avg_ask,
+                    'actual_win_rate': actual_win_rate,
+                    'count': count
+                })
+            
+            return {
+                'calibration_points': calibration_points,
+                'total_predictions': len(data)
+            }
 
 
 def create_handler_class(db_path: str):
@@ -269,6 +346,7 @@ def start_server(port: int = 8000, db_path: str = "backtest_predictions.db"):
     logger.info("  /api/models - Get model versions")
     logger.info("  /api/stats - Get database statistics")
     logger.info("  /api/performance - Get performance metrics")
+    logger.info("  /api/calibration - Get model calibration data")
     
     try:
         server.serve_forever()

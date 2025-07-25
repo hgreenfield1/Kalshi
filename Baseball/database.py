@@ -136,6 +136,15 @@ class BacktestDatabase:
             """, (model_version,))
             return [dict(row) for row in cursor.fetchall()]
     
+    def get_all_predictions(self) -> List[Dict[str, Any]]:
+        """Get all predictions from the database."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT * FROM predictions
+                ORDER BY timestamp
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+    
     def get_strategy_performance(self, strategy_version: str) -> Dict[str, Any]:
         """Get performance metrics for a strategy version."""
         with self._get_connection() as conn:

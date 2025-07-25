@@ -115,6 +115,10 @@
             padding: 20px;
             border-radius: 6px;
             border: 1px solid #e9ecef;
+            min-height: 400px;
+        }
+        .chart-container canvas {
+            max-height: 350px;
         }
         .chart-title {
             font-weight: 600;
@@ -253,7 +257,25 @@
             </div>
         </div>
 
-        <!-- Section 2: Single Game Analysis -->
+        <!-- Section 2: Model Calibration -->
+        <div class="section-divider"></div>
+        
+        <div class="section-header">
+            <h2>Model Calibration</h2>
+        </div>
+        
+        <div class="metrics" id="calibrationMetrics">
+            <div class="loading">Select strategy and model to view calibration curve...</div>
+        </div>
+
+        <div class="charts" id="calibrationCharts" style="display: none;">
+            <div class="chart-container full-width">
+                <div class="chart-title">Model Calibration Curve</div>
+                <canvas id="calibrationChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Section 3: Single Game Analysis -->
         <div class="section-divider"></div>
         
         <div class="section-header">
@@ -318,7 +340,7 @@
         const API_BASE = 'http://localhost:8000/api';
         let overallData = [];
         let gameData = [];
-        let overallCashChart, overallProbChart;
+        let overallCashChart, overallProbChart, calibrationChart;
         let gamePriceChart, gameSignalChart, gameCashChart;
 
         // Load initial data on page load
@@ -361,6 +383,14 @@
                 
                 // Load overall data
                 await loadPredictions();
+                
+                // Load calibration data
+                try {
+                    await loadCalibrationData();
+                } catch (error) {
+                    console.error('Failed to load calibration data:', error);
+                    document.getElementById('calibrationMetrics').innerHTML = '<div class="loading">Error loading calibration data</div>';
+                }
                 
                 updateStatus('success', 'Overall statistics loaded successfully');
                 
@@ -502,6 +532,146 @@
             
             document.getElementById('overallCharts').style.display = 'grid';
         }
+        
+        async function loadCalibrationData() {
+            const params = new URLSearchParams();
+            
+            const strategy = document.getElementById('strategyFilter').value;
+            const model = document.getElementById('modelFilter').value;
+            
+            console.log('Loading calibration data for:', { strategy, model });
+            
+            params.append('strategy_version', strategy);
+            params.append('model_version', model);
+            
+            const url = `${API_BASE}/calibration?${params}`;
+            console.log('Calibration API URL:', url);
+            
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            console.log('Calibration API response:', data);
+            
+            updateCalibrationDisplay(data);
+        }
+        
+        function updateCalibrationDisplay(calibrationData) {
+            // Update metrics
+            const totalPredictions = calibrationData.total_predictions || 0;
+            const numBins = calibrationData.calibration_points ? calibrationData.calibration_points.length : 0;
+            
+            const metricsHtml = `
+                <div class="metric-card">
+                    <div class="metric-value">${totalPredictions}</div>
+                    <div class="metric-label">Predictions with Outcomes</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${numBins}</div>
+                    <div class="metric-label">Calibration Bins</div>
+                </div>
+            `;
+            
+            document.getElementById('calibrationMetrics').innerHTML = metricsHtml;
+            
+            // Update chart
+            updateCalibrationChart(calibrationData);
+            
+            document.getElementById('calibrationCharts').style.display = 'grid';
+        }
+        
+        function updateCalibrationChart(calibrationData) {
+            if (!calibrationData.calibration_points || calibrationData.calibration_points.length === 0) {
+                return;
+            }
+            
+            const points = calibrationData.calibration_points;
+            
+            // Prepare data for three lines: predicted prob, bid price, ask price
+            const predictedData = points.map(p => ({ x: p.avg_predicted, y: p.actual_win_rate }));
+            const bidData = points.map(p => ({ x: p.avg_bid, y: p.actual_win_rate }));
+            const askData = points.map(p => ({ x: p.avg_ask, y: p.actual_win_rate }));
+            
+            if (calibrationChart) calibrationChart.destroy();
+            const ctx = document.getElementById('calibrationChart').getContext('2d');
+            calibrationChart = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Model Predictions',
+                            data: predictedData,
+                            borderColor: '#28a745',
+                            backgroundColor: '#28a745',
+                            showLine: true,
+                            pointRadius: 6
+                        },
+                        {
+                            label: 'Market Bid Price',
+                            data: bidData,
+                            borderColor: '#dc3545',
+                            backgroundColor: '#dc3545',
+                            showLine: true,
+                            pointRadius: 6
+                        },
+                        {
+                            label: 'Market Ask Price',
+                            data: askData,
+                            borderColor: '#ffc107',
+                            backgroundColor: '#ffc107',
+                            showLine: true,
+                            pointRadius: 6
+                        },
+                        {
+                            label: 'Perfect Calibration',
+                            data: [{ x: 0, y: 0 }, { x: 100, y: 100 }],
+                            borderColor: '#6c757d',
+                            backgroundColor: 'transparent',
+                            showLine: true,
+                            pointRadius: 0,
+                            borderDash: [5, 5]
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Predicted/Market Probability (%)'
+                            },
+                            min: 0,
+                            max: 100
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Actual Win Rate (%)'
+                            },
+                            min: 0,
+                            max: 100
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const point = points[context.dataIndex];
+                                    if (point) {
+                                        return `${context.dataset.label}: (${context.parsed.x.toFixed(1)}%, ${context.parsed.y.toFixed(1)}%) - ${point.count} predictions`;
+                                    }
+                                    return `${context.dataset.label}: (${context.parsed.x.toFixed(1)}%, ${context.parsed.y.toFixed(1)}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
 
         function updateGameDisplay() {
             updateGameMetrics();
@@ -614,11 +784,59 @@
 
 
         function updateOverallCharts() {
-            // Cash over time chart (all games)
-            const cashData = overallData.map(row => ({
-                x: new Date(row.timestamp),
-                y: parseFloat(row.cash) || 100
-            }));
+            // Cash over time chart - cumulative game returns starting at 100
+            const gameResults = {};
+            
+            // Group data by game and find start/end cash for each game
+            overallData.forEach(row => {
+                const gameId = row.game_id;
+                const timestamp = new Date(row.timestamp);
+                const cash = parseFloat(row.cash) || 100;
+                
+                if (!gameResults[gameId]) {
+                    gameResults[gameId] = {
+                        startTime: timestamp,
+                        endTime: timestamp,
+                        startCash: cash,
+                        endCash: cash
+                    };
+                } else {
+                    // Update with earliest and latest timestamps and their cash values
+                    if (timestamp < gameResults[gameId].startTime) {
+                        gameResults[gameId].startTime = timestamp;
+                        gameResults[gameId].startCash = cash;
+                    }
+                    if (timestamp > gameResults[gameId].endTime) {
+                        gameResults[gameId].endTime = timestamp;
+                        gameResults[gameId].endCash = cash;
+                    }
+                }
+            });
+            
+            // Sort games by start time and calculate cumulative returns
+            const sortedGames = Object.entries(gameResults)
+                .sort(([,a], [,b]) => a.startTime - b.startTime);
+            
+            let cumulativeCash = 100;
+            const cashData = [];
+            
+            // Add starting point
+            if (sortedGames.length > 0) {
+                cashData.push({
+                    x: new Date(sortedGames[0][1].startTime.getTime() - 24*60*60*1000), // 1 day before first game
+                    y: 100
+                });
+            }
+            
+            // Calculate cumulative cash after each game
+            sortedGames.forEach(([gameId, gameResult]) => {
+                const gameReturn = gameResult.endCash - gameResult.startCash;
+                cumulativeCash += gameReturn;
+                cashData.push({
+                    x: gameResult.endTime, // Use end time of game for the data point
+                    y: cumulativeCash
+                });
+            });
 
             if (overallCashChart) overallCashChart.destroy();
             const cashCtx = document.getElementById('overallCashChart').getContext('2d');
@@ -635,6 +853,7 @@
                 },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     scales: {
                         x: {
                             type: 'time',
@@ -674,6 +893,7 @@
                 },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     scales: {
                         x: {
                             title: {
@@ -731,6 +951,7 @@
                 data: priceData,
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     scales: {
                         x: {
                             type: 'time',
@@ -781,6 +1002,7 @@
                 data: signalData,
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     scales: {
                         x: {
                             type: 'time',
@@ -834,6 +1056,7 @@
                 },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     scales: {
                         x: {
                             type: 'time',
