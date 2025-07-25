@@ -5,6 +5,7 @@
 
 
 Backtest Functionality:
-<img width="1174" height="822" alt="image" src="https://github.com/user-attachments/assets/cbdb64c9-a8ae-4c8f-9809-2d9f028d6c29" />
-<img width="1079" height="841" alt="image" src="https://github.com/user-attachments/assets/9445a201-d8b0-4d51-9a63-3d1ba8916d2a" />
-<img width="1081" height="698" alt="image" src="https://github.com/user-attachments/assets/44fbbf77-7161-46c6-be3f-0afa9385c972" />
+<img width="974" height="717" alt="image" src="https://github.com/user-attachments/assets/80abade4-d836-4d58-8086-b9c3076cdd15" />
+<img width="961" height="841" alt="image" src="https://github.com/user-attachments/assets/10dcb7e6-1ebc-4aab-817f-f904bee702c6" />
+<img width="800" height="671" alt="image" src="https://github.com/user-attachments/assets/16af1324-cf7e-4379-b254-e7dbdaa06dbe" />
+
