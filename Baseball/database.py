@@ -73,7 +73,7 @@ class BacktestDatabase:
     def save_predictions(self, predictions: List[Dict[str, Any]], actual_outcome: bool, 
                         prediction_model_version: str, strategy_version: str):
         """
-        Save prediction data to the database.
+        Save prediction data to the database, replacing existing data for the same game/strategy.
         
         Args:
             predictions: List of prediction dictionaries
@@ -85,7 +85,21 @@ class BacktestDatabase:
             logging.warning("No predictions to save")
             return
         
+        # Get game_id from first prediction to delete existing data
+        game_id = predictions[0]['game_id']
+        
         with self._get_connection() as conn:
+            # Delete existing predictions for this game/strategy combination
+            cursor = conn.execute("""
+                DELETE FROM predictions 
+                WHERE game_id = ? AND strategy_version = ?
+            """, (game_id, strategy_version))
+            
+            deleted_count = cursor.rowcount
+            if deleted_count > 0:
+                logging.info(f"Deleted {deleted_count} existing predictions for game {game_id}, strategy {strategy_version}")
+            
+            # Insert new predictions
             for prediction in predictions:
                 conn.execute("""
                     INSERT INTO predictions (

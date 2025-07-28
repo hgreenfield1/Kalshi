@@ -275,7 +275,58 @@
             </div>
         </div>
 
-        <!-- Section 3: Single Game Analysis -->
+        <!-- Section 3: Abnormal PnL Games -->
+        <div class="section-divider"></div>
+        
+        <div class="section-header">
+            <h2>Abnormal PnL Games</h2>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="pnlSortBy">Sort By:</label>
+                <select id="pnlSortBy">
+                    <option value="outliers">Outliers First</option>
+                    <option value="highest">Highest PnL</option>
+                    <option value="lowest">Lowest PnL</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="pnlLimit">Show Top:</label>
+                <select id="pnlLimit">
+                    <option value="10">10 Games</option>
+                    <option value="20">20 Games</option>
+                    <option value="50">50 Games</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadPnlGames()">Load PnL Games</button>
+            </div>
+        </div>
+
+        <div class="table-container" id="pnlTableContainer" style="display: none;">
+            <div class="table-header">Games by PnL Performance</div>
+            <div class="table-content">
+                <table id="pnlDataTable">
+                    <thead>
+                        <tr>
+                            <th>Game ID</th>
+                            <th>Date</th>
+                            <th>PnL</th>
+                            <th>Final Cash</th>
+                            <th>Outcome</th>
+                            <th>Type</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pnlTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Section 4: Single Game Analysis -->
         <div class="section-divider"></div>
         
         <div class="section-header">
@@ -340,12 +391,26 @@
         const API_BASE = 'http://localhost:8000/api';
         let overallData = [];
         let gameData = [];
+        let pnlGamesData = [];
         let overallCashChart, overallProbChart, calibrationChart;
         let gamePriceChart, gameSignalChart, gameCashChart;
 
         // Load initial data on page load
         window.addEventListener('load', function() {
             loadInitialData();
+            
+            // Add event listeners for PnL controls
+            document.getElementById('pnlSortBy').addEventListener('change', function() {
+                if (pnlGamesData.length > 0) {
+                    updatePnlGamesDisplay();
+                }
+            });
+            
+            document.getElementById('pnlLimit').addEventListener('change', function() {
+                if (pnlGamesData.length > 0) {
+                    updatePnlGamesDisplay();
+                }
+            });
         });
 
         async function loadInitialData() {
@@ -398,6 +463,95 @@
                 console.error('Error loading overall data:', error);
                 updateStatus('error', `Error loading data: ${error.message}`);
             }
+        }
+
+        async function loadPnlGames() {
+            const strategy = document.getElementById('strategyFilter').value;
+            const model = document.getElementById('modelFilter').value;
+            
+            if (!strategy || !model) {
+                alert('Please select strategy and model first in the overall section');
+                return;
+            }
+            
+            try {
+                const params = new URLSearchParams();
+                params.append('strategy_version', strategy);
+                params.append('model_version', model);
+                
+                const response = await fetch(`${API_BASE}/games-by-pnl?${params}`);
+                const data = await response.json();
+                
+                pnlGamesData = data.games || [];
+                updatePnlGamesDisplay();
+                
+            } catch (error) {
+                console.error('Error loading PnL games:', error);
+                alert(`Error loading PnL games: ${error.message}`);
+            }
+        }
+
+        function updatePnlGamesDisplay() {
+            const sortBy = document.getElementById('pnlSortBy').value;
+            const limit = parseInt(document.getElementById('pnlLimit').value);
+            
+            let sortedGames = [...pnlGamesData];
+            
+            // Apply sorting
+            if (sortBy === 'outliers') {
+                sortedGames.sort((a, b) => {
+                    if (a.is_outlier && !b.is_outlier) return -1;
+                    if (!a.is_outlier && b.is_outlier) return 1;
+                    return Math.abs(b.pnl) - Math.abs(a.pnl); // Sort outliers by absolute PnL
+                });
+            } else if (sortBy === 'highest') {
+                sortedGames.sort((a, b) => b.pnl - a.pnl);
+            } else if (sortBy === 'lowest') {
+                sortedGames.sort((a, b) => a.pnl - b.pnl);
+            }
+            
+            // Apply limit
+            sortedGames = sortedGames.slice(0, limit);
+            
+            const tbody = document.getElementById('pnlTableBody');
+            tbody.innerHTML = '';
+            
+            sortedGames.forEach(game => {
+                const tr = document.createElement('tr');
+                const date = game.start_time ? new Date(game.start_time).toLocaleDateString() : 'N/A';
+                const outcome = game.actual_outcome === 1 ? '✓ Win' : game.actual_outcome === 0 ? '✗ Loss' : 'TBD';
+                const pnlClass = game.pnl >= 0 ? 'positive' : 'negative';
+                const typeLabel = game.is_outlier ? `${game.outlier_type.toUpperCase()} OUTLIER` : 'Normal';
+                const typeClass = game.is_outlier ? (game.outlier_type === 'high' ? 'positive' : 'negative') : '';
+                
+                tr.innerHTML = `
+                    <td>${game.game_id}</td>
+                    <td>${date}</td>
+                    <td class="${pnlClass}">$${game.pnl.toFixed(2)}</td>
+                    <td>$${game.final_cash.toFixed(2)}</td>
+                    <td>${outcome}</td>
+                    <td class="${typeClass}" style="font-weight: bold;">${typeLabel}</td>
+                    <td><button onclick="analyzeGameFromPnl('${game.game_id}')" style="padding: 5px 10px; font-size: 12px;">Analyze</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            document.getElementById('pnlTableContainer').style.display = 'block';
+        }
+
+        function analyzeGameFromPnl(gameId) {
+            // Set the game in the single game analysis dropdown and load it
+            const gameSelect = document.getElementById('gameAnalysisFilter');
+            gameSelect.value = gameId;
+            
+            // Scroll to single game analysis section
+            const singleGameSection = Array.from(document.querySelectorAll('h2')).find(h2 => h2.textContent === 'Single Game Analysis');
+            if (singleGameSection) {
+                singleGameSection.scrollIntoView({ behavior: 'smooth' });
+            }
+            
+            // Load the game analysis
+            loadGameAnalysis();
         }
 
         async function loadGameAnalysis() {
@@ -695,16 +849,15 @@
                 const response = await fetch(`${API_BASE}/performance?${params}`);
                 const metrics = await response.json();
                 
-                const games = [...new Set(overallData.map(row => row.game_id))];
                 const totalTrades = overallData.filter(row => row.signal && row.signal !== 0).length;
-                const finalCash = overallData.length > 0 ? Math.max(...overallData.map(row => parseFloat(row.cash) || 100)) : 100;
+                const finalCash = metrics.cumulative_final_cash ? metrics.cumulative_final_cash.toFixed(2) : '100.00';
                 const roi = metrics.roi_percent ? metrics.roi_percent.toFixed(2) : '0.00';
                 const winRate = metrics.win_rate ? (metrics.win_rate * 100).toFixed(1) : 'N/A';
-                const accuracy = metrics.prediction_accuracy ? (metrics.prediction_accuracy * 100).toFixed(1) : 'N/A';
+                const gamesAnalyzed = metrics.total_games || 0;
 
                 const metricsHtml = `
                     <div class="metric-card">
-                        <div class="metric-value">${games.length}</div>
+                        <div class="metric-value">${gamesAnalyzed}</div>
                         <div class="metric-label">Games Analyzed</div>
                     </div>
                     <div class="metric-card">
@@ -716,16 +869,12 @@
                         <div class="metric-label">Return on Investment</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-value">$${finalCash.toFixed(2)}</div>
+                        <div class="metric-value">$${finalCash}</div>
                         <div class="metric-label">Final Cash</div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-value">${winRate}%</div>
                         <div class="metric-label">Win Rate</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-value">${accuracy}%</div>
-                        <div class="metric-label">Prediction Accuracy</div>
                     </div>
                 `;
                 
@@ -913,10 +1062,27 @@
         }
 
         function updateGameCharts() {
-            // Sort game data by timestamp for proper chronological order
-            const sortedGameData = [...gameData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            // Filter out FINAL timestamp and sort game data by timestamp for proper chronological order
+            const sortedGameData = [...gameData]
+                .filter(row => row.timestamp !== "FINAL")
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             
             // Price evolution chart
+            // Create buy/sell event data points
+            const buyEvents = sortedGameData
+                .filter(row => row.signal && parseFloat(row.signal) > 0)
+                .map(row => ({
+                    x: new Date(row.timestamp),
+                    y: parseFloat(row.predicted_prob)
+                }));
+            
+            const sellEvents = sortedGameData
+                .filter(row => row.signal && parseFloat(row.signal) < 0)
+                .map(row => ({
+                    x: new Date(row.timestamp),
+                    y: parseFloat(row.predicted_prob)
+                }));
+
             const priceData = {
                 labels: sortedGameData.map(row => new Date(row.timestamp)),
                 datasets: [
@@ -925,21 +1091,46 @@
                         data: sortedGameData.map(row => parseFloat(row.predicted_prob)),
                         borderColor: '#28a745',
                         backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                        yAxisID: 'y'
+                        yAxisID: 'y',
+                        type: 'line'
                     },
                     {
                         label: 'Bid Price',
                         data: sortedGameData.map(row => parseFloat(row.bid_price)),
                         borderColor: '#dc3545',
                         backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                        yAxisID: 'y'
+                        yAxisID: 'y',
+                        type: 'line'
                     },
                     {
                         label: 'Ask Price',
                         data: sortedGameData.map(row => parseFloat(row.ask_price)),
                         borderColor: '#ffc107',
                         backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                        yAxisID: 'y'
+                        yAxisID: 'y',
+                        type: 'line'
+                    },
+                    {
+                        label: 'Buy Events',
+                        data: buyEvents,
+                        borderColor: '#007bff',
+                        backgroundColor: '#007bff',
+                        yAxisID: 'y',
+                        type: 'scatter',
+                        pointRadius: 8,
+                        pointStyle: 'triangle',
+                        showLine: false
+                    },
+                    {
+                        label: 'Sell Events',
+                        data: sellEvents,
+                        borderColor: '#e74c3c',
+                        backgroundColor: '#e74c3c',
+                        yAxisID: 'y',
+                        type: 'scatter',
+                        pointRadius: 8,
+                        pointStyle: 'rectRot',
+                        showLine: false
                     }
                 ]
             };
@@ -947,7 +1138,7 @@
             if (gamePriceChart) gamePriceChart.destroy();
             const priceCtx = document.getElementById('gamePriceChart').getContext('2d');
             gamePriceChart = new Chart(priceCtx, {
-                type: 'line',
+                type: 'line', // Mixed chart with scatter overlays
                 data: priceData,
                 options: {
                     responsive: true,
@@ -1079,8 +1270,10 @@
             const tbody = document.getElementById('gameTableBody');
             tbody.innerHTML = '';
             
-            // Sort by timestamp for chronological order
-            const sortedData = [...gameData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            // Filter out FINAL timestamp and sort by timestamp for chronological order
+            const sortedData = [...gameData]
+                .filter(row => row.timestamp !== "FINAL")
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             
             sortedData.forEach(row => {
                 const tr = document.createElement('tr');

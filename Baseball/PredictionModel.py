@@ -53,3 +53,15 @@ class AlphaDecayPredictionModel(PredictionModel):
         live_weight /= total
 
         return round(pre_weight * P_pre + live_weight * P_live, 2)
+
+
+def get_prediction_model_by_version(version: str) -> PredictionModel:
+    """Factory function to get a prediction model by version number."""
+    if version == "1.0.0":
+        # Base model - return the simplest implementation
+        return AlphaDecayPredictionModel()
+    elif version == "1.1.0":
+        return AlphaDecayPredictionModel()
+    else:
+        logging.warning(f"Unknown prediction model version: {version}. Defaulting to 1.1.0")
+        return AlphaDecayPredictionModel()

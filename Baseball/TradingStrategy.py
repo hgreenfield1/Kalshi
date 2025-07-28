@@ -49,6 +49,17 @@ class BacktestStrategy(TradingStrategy):
                 last_bid = last_ask = 0
 
             self.close_all_positions(last_bid, last_ask)
+
+        self.prediction_log.append({
+            'game_id': game.game_id,
+            'timestamp': 'FINAL',
+            'mid_price': None,
+            'bid_price': None,
+            'ask_price': None,
+            'cash': self.cash,
+            'positions': self.positions,
+            'signal': None
+        })
         
         if save_to_db:
             logging.info("Saving predictions to database.")

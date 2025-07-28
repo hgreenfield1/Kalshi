@@ -52,6 +52,8 @@ class BacktestAPIHandler(BaseHTTPRequestHandler):
                 response = self.get_performance_metrics(query_params)
             elif path == '/api/calibration':
                 response = self.get_calibration_data(query_params)
+            elif path == '/api/games-by-pnl':
+                response = self.get_games_by_pnl(query_params)
             else:
                 response = {'error': 'Endpoint not found'}
             
@@ -225,6 +227,39 @@ class BacktestAPIHandler(BaseHTTPRequestHandler):
             
             where_clause = 'WHERE ' + ' AND '.join(where_clauses) if where_clauses else ''
             
+            # Calculate ROI and Win Rate using "FINAL" timestamp cash values
+            final_where_clause = where_clause + (" AND " if where_clauses else "WHERE ") + 'timestamp = "FINAL"'
+            
+            roi_cursor = conn.execute(f"""
+                SELECT 
+                    AVG(((cash - 100.0) / 100.0) * 100) as roi_percent,
+                    AVG(CASE WHEN cash > 100.0 THEN 1.0 ELSE 0.0 END) as win_rate
+                FROM predictions 
+                {final_where_clause}
+            """, params)
+            
+            roi_result = roi_cursor.fetchone()
+            roi_percent = roi_result['roi_percent'] if roi_result and roi_result['roi_percent'] is not None else 0.0
+            win_rate = roi_result['win_rate'] if roi_result and roi_result['win_rate'] is not None else 0.0
+            
+            # Calculate cumulative final cash (same logic as Cash Over Time chart)
+            cumulative_cash = 100.0
+            if roi_result and roi_result['roi_percent'] is not None:
+                # Get FINAL cash values for all games to calculate cumulative
+                final_cash_cursor = conn.execute(f"""
+                    SELECT game_id, cash
+                    FROM predictions 
+                    {final_where_clause}
+                    ORDER BY game_id
+                """, params)
+                
+                final_cash_results = final_cash_cursor.fetchall()
+                
+                for row in final_cash_results:
+                    final_cash = float(row['cash']) if row['cash'] else 100.0
+                    game_return = final_cash - 100.0
+                    cumulative_cash += game_return
+            
             # Performance metrics query
             cursor = conn.execute(f"""
                 SELECT 
@@ -238,15 +273,17 @@ class BacktestAPIHandler(BaseHTTPRequestHandler):
                     AVG(cash) as avg_cash,
                     MIN(cash) as min_cash,
                     MAX(cash) as max_cash,
-                    (MAX(cash) - 100.0) / 100.0 * 100 as roi_percent,
-                    COUNT(CASE WHEN signal IS NOT NULL AND signal != 0 THEN 1 END) as total_trades,
-                    AVG(CASE WHEN actual_outcome IS NOT NULL THEN actual_outcome END) as win_rate
+                    COUNT(CASE WHEN signal IS NOT NULL AND signal != 0 THEN 1 END) as total_trades
                 FROM predictions 
                 {where_clause}
             """, params)
             
             result = cursor.fetchone()
-            return dict(result) if result else {}
+            metrics = dict(result) if result else {}
+            metrics['roi_percent'] = roi_percent
+            metrics['win_rate'] = win_rate
+            metrics['cumulative_final_cash'] = cumulative_cash
+            return metrics
     
     def get_calibration_data(self, query_params: Dict[str, List[str]]) -> Dict[str, Any]:
         """Get calibration curve data for model predictions."""
@@ -322,6 +359,71 @@ class BacktestAPIHandler(BaseHTTPRequestHandler):
                 'calibration_points': calibration_points,
                 'total_predictions': len(data)
             }
+    
+    def get_games_by_pnl(self, query_params: Dict[str, List[str]]) -> Dict[str, Any]:
+        """Get games sorted by PnL (profit/loss) with optional filters."""
+        with self.get_connection() as conn:
+            # Build filters
+            where_clauses = []
+            params = []
+            
+            if 'strategy_version' in query_params and query_params['strategy_version'][0]:
+                where_clauses.append('strategy_version = ?')
+                params.append(query_params['strategy_version'][0])
+            
+            if 'model_version' in query_params and query_params['model_version'][0]:
+                where_clauses.append('prediction_model_version = ?')
+                params.append(query_params['model_version'][0])
+            
+            where_clause = 'WHERE ' + ' AND '.join(where_clauses) if where_clauses else ''
+            final_where_clause = where_clause + (" AND " if where_clauses else "WHERE ") + 'timestamp = "FINAL"'
+            
+            # Get games with their final cash values and calculate PnL
+            # Build the subquery parameters separately
+            subquery_params = params.copy() if where_clauses else []
+            final_params = params.copy()
+            
+            cursor = conn.execute(f"""
+                SELECT 
+                    f.game_id,
+                    f.cash as final_cash,
+                    (f.cash - 100.0) as pnl,
+                    f.actual_outcome,
+                    g.start_time
+                FROM predictions f
+                INNER JOIN (
+                    SELECT game_id, MIN(timestamp) as start_time
+                    FROM predictions 
+                    WHERE timestamp != 'FINAL' {' AND ' + ' AND '.join(where_clauses) if where_clauses else ''}
+                    GROUP BY game_id
+                ) g ON f.game_id = g.game_id
+                {final_where_clause}
+                ORDER BY pnl DESC
+            """, subquery_params + final_params)
+            
+            games = [dict(row) for row in cursor.fetchall()]
+            
+            # Add some statistics
+            if games:
+                pnls = [game['pnl'] for game in games]
+                avg_pnl = sum(pnls) / len(pnls)
+                std_pnl = (sum((pnl - avg_pnl) ** 2 for pnl in pnls) / len(pnls)) ** 0.5
+                
+                # Mark games as outliers if they're more than 1.5 standard deviations from mean
+                for game in games:
+                    game['is_outlier'] = abs(game['pnl'] - avg_pnl) > 1.5 * std_pnl
+                    game['outlier_type'] = 'high' if game['pnl'] > avg_pnl + 1.5 * std_pnl else 'low' if game['pnl'] < avg_pnl - 1.5 * std_pnl else 'normal'
+                
+                return {
+                    'games': games,
+                    'stats': {
+                        'avg_pnl': avg_pnl,
+                        'std_pnl': std_pnl,
+                        'total_games': len(games)
+                    }
+                }
+            else:
+                return {'games': [], 'stats': {'avg_pnl': 0, 'std_pnl': 0, 'total_games': 0}}
 
 
 def create_handler_class(db_path: str):
@@ -347,6 +449,7 @@ def start_server(port: int = 8000, db_path: str = "backtest_predictions.db"):
     logger.info("  /api/stats - Get database statistics")
     logger.info("  /api/performance - Get performance metrics")
     logger.info("  /api/calibration - Get model calibration data")
+    logger.info("  /api/games-by-pnl - Get games sorted by PnL with outlier detection")
     
     try:
         server.serve_forever()
