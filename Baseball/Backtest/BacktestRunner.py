@@ -60,8 +60,8 @@ class BacktestRunner:
             if timestamp in candle_map:
                 candle = candle_map[timestamp]
                 prices[timestamp] = {
-                    'bid': candle['yes_bid']['close'] if candle['yes_bid']['close'] is not None else None,
-                    'ask': candle['yes_ask']['close'] if candle['yes_ask']['close'] is not None else None
+                    'bid': float(candle['yes_bid']['close_dollars']) if candle['yes_bid']['close_dollars'] is not None else None,
+                    'ask': float(candle['yes_ask']['close_dollars']) if candle['yes_ask']['close_dollars'] is not None else None
                 }
             else:
                 prices[timestamp] = {'bid': None, 'ask': None}

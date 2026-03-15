@@ -146,8 +146,7 @@ class BaseballGame:
             homeOrVisitor = 'H'
 
         prob = getProbability(homeOrVisitor, self.inning, self.outs, self.runner_index, self.net_score) 
-        if prob != -1:
-            prob = prob * 100
+
         return prob
 
     def calc_pct_played(self):
@@ -165,17 +164,14 @@ class BaseballGame:
         if len(candlestick['candlesticks']) == 0:
             raise Exception("No pregame candlestick data available for this game.")
         else:
-            if candlestick['candlesticks'][-1]['price']['mean'] is not None:
-                self.pregame_winProbability = candlestick['candlesticks'][-1]['price']['mean']
+            if candlestick['candlesticks'][-1]['yes_bid']['close_dollars'] is not None and candlestick['candlesticks'][-1]['yes_ask']['close_dollars'] is not None:
+                self.pregame_winProbability = (float(candlestick['candlesticks'][-1]['yes_bid']['close_dollars']) + float(candlestick['candlesticks'][-1]['yes_ask']['close_dollars'])) / 2
+            elif candlestick['candlesticks'][-1]['yes_bid']['close_dollars'] is not None:
+                self.pregame_winProbability = float(candlestick['candlesticks'][-1]['yes_bid']['close_dollars']) + 2
+            elif candlestick['candlesticks'][-1]['yes_bid']['close_dollars'] is not None:
+                self.pregame_winProbability = float(candlestick['candlesticks'][-1]['yes_ask']['close_dollars']) - 2
             else:
-                if candlestick['candlesticks'][-1]['yes_bid']['close'] is not None and candlestick['candlesticks'][-1]['yes_ask']['close'] is not None:
-                    self.pregame_winProbability = (candlestick['candlesticks'][-1]['yes_bid']['close'] + candlestick['candlesticks'][-1]['yes_ask']['close']) / 2
-                elif candlestick['candlesticks'][-1]['yes_bid']['close'] is not None:
-                    self.pregame_winProbability = candlestick['candlesticks'][-1]['yes_bid']['close'] + 2
-                elif candlestick['candlesticks'][-1]['yes_bid']['close'] is not None:
-                    self.pregame_winProbability = candlestick['candlesticks'][-1]['yes_ask']['close'] - 2
-                else:
-                    Exception("Pregame win probability is unavailable.")
+                Exception("Pregame win probability is unavailable.")
 
     def roll_status(self):
         if self.strikes >= 3:

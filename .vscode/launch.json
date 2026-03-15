@@ -2,6 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Python: Current File",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "env": {
+          "PYTHONPATH": "C:\\Users\\henry\\Kalshi"
+      }
+    },
+    {
       "name": "Python: backtest.py",
       "type": "debugpy",
       "request": "launch",

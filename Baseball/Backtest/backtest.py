@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0, r"C:\Users\henry\Kalshi")
+
 import logging
 import pandas as pd
 import statsapi
@@ -60,7 +63,7 @@ def main():
     # ==== MAIN BACKTEST LOOP ====
     # Outer loop: iterate through each market
     # Inner loop: run all selected strategies for each market using shared game data
-    for market in list(all_markets.values())[20:]:
+    for market in list(all_markets.values())[0:1]:
         try:
             # Convert Kalshi market to baseball game object
             game = market_to_game(market)
