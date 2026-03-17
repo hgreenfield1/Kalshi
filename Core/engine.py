@@ -175,8 +175,8 @@ class BacktestEngine:
         candlesticks = self.http_client.get_market_candelstick(
             market.ticker,
             market.series_ticker,
-            timestamps[0],
-            timestamps[-1],
+            date_helpers.game_timestamp_to_unix(timestamps[0]),
+            date_helpers.game_timestamp_to_unix(timestamps[-1]),
             1
         )
 

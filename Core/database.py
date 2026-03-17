@@ -18,7 +18,7 @@ class BacktestDatabase:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    market_type TEXT NOT NULL,
+                    market_type TEXT NOT NULL DEFAULT 'baseball',
                     market_id TEXT NOT NULL,
                     timestamp TEXT NOT NULL,
                     predicted_prob REAL,
@@ -33,6 +33,29 @@ class BacktestDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Migrate existing tables missing new columns
+            existing_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(predictions)")
+            }
+            if 'market_id' not in existing_columns:
+                conn.execute(
+                    "ALTER TABLE predictions ADD COLUMN market_id TEXT NOT NULL DEFAULT ''"
+                )
+                logging.info("Migrated predictions table: added market_id column")
+            if 'market_type' not in existing_columns:
+                conn.execute(
+                    "ALTER TABLE predictions ADD COLUMN market_type TEXT NOT NULL DEFAULT 'baseball'"
+                )
+                logging.info("Migrated predictions table: added market_type column")
+            if 'prediction_model_version' not in existing_columns:
+                conn.execute(
+                    "ALTER TABLE predictions ADD COLUMN prediction_model_version TEXT NOT NULL DEFAULT 'unknown'"
+                )
+            if 'strategy_version' not in existing_columns:
+                conn.execute(
+                    "ALTER TABLE predictions ADD COLUMN strategy_version TEXT NOT NULL DEFAULT 'unknown'"
+                )
 
             # Indexes
             conn.execute("""

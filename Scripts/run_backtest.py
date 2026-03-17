@@ -71,13 +71,13 @@ def main():
     # Create market filter
     market_filter = CompositeMarketFilter(
         SeriesMarketFilter([SERIES_TICKER]),
-        StatusMarketFilter('settled')
+        StatusMarketFilter('finalized')
     )
 
     # Get markets
     logging.info(f"Fetching markets for {SERIES_TICKER}...")
     all_markets = http_client.get_markets([SERIES_TICKER], status='settled')
-    filtered_markets = market_filter.filter(all_markets)
+    filtered_markets = market_filter.filter(list(all_markets.values()))
 
     # Filter to home team markets only (avoid duplicates)
     home_markets = [m for m in filtered_markets if m.ticker.split('-')[-1] in m.ticker.split('-')[1]]

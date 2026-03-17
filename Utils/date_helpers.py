@@ -53,6 +53,25 @@ def get_backtest_timestamps(start_time_str: str, end_time_str: str) -> List[str]
     return timestamps
 
 
+def game_timestamp_to_unix(timestamp_str: str) -> int:
+    """
+    Convert a game-format timestamp to a Unix timestamp (int).
+
+    Args:
+        timestamp_str: Game format ('20250101_120000') or ISO UTC ('2025-01-01T12:00:00Z')
+
+    Returns:
+        Unix timestamp as int
+    """
+    for fmt in (GAME_TIMESTAMP_FORMAT, ISO_UTC_FORMAT):
+        try:
+            dt = datetime.strptime(timestamp_str, fmt).replace(tzinfo=timezone.utc)
+            return int(dt.timestamp())
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognised timestamp format: {timestamp_str!r}")
+
+
 def unix_to_utc_timestamp(unix_timestamp: float) -> str:
     """
     Convert Unix timestamp to ISO UTC format.
