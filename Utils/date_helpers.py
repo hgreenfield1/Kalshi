@@ -91,19 +91,36 @@ def round_to_next_minute(timestamp_str: str) -> str:
     Round timestamp up to the next minute boundary.
 
     Args:
-        timestamp_str: ISO UTC timestamp string
+        timestamp_str: ISO UTC or game format timestamp string
 
     Returns:
         ISO UTC timestamp rounded to next minute
     """
-    dt = datetime.strptime(timestamp_str, ISO_UTC_FORMAT)
+    for fmt in (ISO_UTC_FORMAT, GAME_TIMESTAMP_FORMAT):
+        try:
+            dt = datetime.strptime(timestamp_str, fmt).replace(tzinfo=timezone.utc)
+            break
+        except ValueError:
+            continue
+    else:
+        raise ValueError(f"Unrecognised timestamp format: {timestamp_str!r}")
 
-    if dt.second == 0:
-        return timestamp_str
+    if dt.second == 0 and dt.microsecond == 0:
+        return dt.strftime(ISO_UTC_FORMAT)
 
     # Round up to next minute
     dt = dt.replace(second=0, microsecond=0) + MINUTE_INTERVAL
     return dt.strftime(ISO_UTC_FORMAT)
+
+
+def _parse_timestamp(timestamp_str: str) -> datetime:
+    """Parse a timestamp string in either ISO UTC or game format."""
+    for fmt in (ISO_UTC_FORMAT, GAME_TIMESTAMP_FORMAT):
+        try:
+            return datetime.strptime(timestamp_str, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognised timestamp format: {timestamp_str!r}")
 
 
 def add_minutes_to_timestamp(timestamp_str: str, minutes: int) -> str:
@@ -111,13 +128,13 @@ def add_minutes_to_timestamp(timestamp_str: str, minutes: int) -> str:
     Add specified minutes to a timestamp.
 
     Args:
-        timestamp_str: ISO UTC timestamp string
+        timestamp_str: ISO UTC or game format timestamp string
         minutes: Number of minutes to add (can be negative)
 
     Returns:
         New ISO UTC timestamp string
     """
-    dt = datetime.strptime(timestamp_str, ISO_UTC_FORMAT).replace(tzinfo=timezone.utc)
+    dt = _parse_timestamp(timestamp_str)
     dt += timedelta(minutes=minutes)
     return dt.strftime(ISO_UTC_FORMAT)
 
@@ -127,13 +144,13 @@ def minutes_between_timestamps(ts1: str, ts2: str) -> int:
     Calculate whole minutes between two timestamps.
 
     Args:
-        ts1: First ISO UTC timestamp string
-        ts2: Second ISO UTC timestamp string
+        ts1: First ISO UTC or game format timestamp string
+        ts2: Second ISO UTC or game format timestamp string
 
     Returns:
         Number of whole minutes between timestamps (ts2 - ts1)
     """
-    dt1 = datetime.strptime(ts1, ISO_UTC_FORMAT)
-    dt2 = datetime.strptime(ts2, ISO_UTC_FORMAT)
+    dt1 = _parse_timestamp(ts1)
+    dt2 = _parse_timestamp(ts2)
     delta = dt2 - dt1
     return int(delta.total_seconds() // 60)

@@ -45,6 +45,13 @@ class BaseballDataLoader(BaseDataLoader):
         """Pre-load all game data using multiprocessing."""
         logging.info(f"Pre-loading baseball data for game {self.game.game_id}")
 
+        # Set pregame win probability from market prices
+        try:
+            self.game.update_pregame_win_probability(self.market, self.http_client)
+            logging.info(f"Pregame win probability: {self.game.pregame_winProbability:.1f}")
+        except Exception as e:
+            logging.warning(f"Could not get pregame win probability: {e}")
+
         args = [(self.game.game_id, ts) for ts in timestamps]
 
         with ProcessPoolExecutor(max_workers=min(cpu_count(), len(timestamps))) as executor:
@@ -65,13 +72,12 @@ class BaseballDataLoader(BaseDataLoader):
         successful = sum(1 for d in self._cache.values() if d is not None)
         logging.info(f"Loaded {successful}/{len(timestamps)} game states")
 
-    def at_timestep(self, timestamp: str) -> dict:
-        """Return game state at timestamp with lookahead protection."""
+    def at_timestep(self, timestamp: str):
+        """Return game object at timestamp with lookahead protection."""
         if timestamp in self._cache and self._cache[timestamp] is not None:
-            # Update game with cached data
             self.game.update_status(timestamp, self._cache)
-            return {'game': self.game}
-        return {'game': None}
+            return self.game
+        return None
 
     def get_outcome(self) -> bool:
         """Return whether home team won."""

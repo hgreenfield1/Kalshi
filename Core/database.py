@@ -108,13 +108,14 @@ class BacktestDatabase:
             for pred in predictions:
                 conn.execute("""
                     INSERT INTO predictions (
-                        market_type, market_id, timestamp, predicted_prob,
+                        market_type, market_id, game_id, timestamp, predicted_prob,
                         bid_price, ask_price, cash, positions, signal,
                         actual_outcome, prediction_model_version, strategy_version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     market_type,
                     pred['market_id'],
+                    pred['market_id'],  # game_id mirrors market_id for schema compatibility
                     pred['timestamp'],
                     pred.get('mid_price'),
                     pred.get('bid_price'),

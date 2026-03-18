@@ -106,8 +106,9 @@ class BacktestEngine:
         # Close all positions at market resolution
         if timestamps:
             ts_final = date_helpers.round_to_next_minute(timestamps[-1])
-            final_bid = prices.get(ts_final, {}).get('bid', 100 if outcome else 0)
-            final_ask = prices.get(ts_final, {}).get('ask', 100 if outcome else 0)
+            fallback_price = 100 if outcome else 0
+            final_bid = prices.get(ts_final, {}).get('bid') or fallback_price
+            final_ask = prices.get(ts_final, {}).get('ask') or fallback_price
             portfolio.close_all_positions(final_bid, final_ask)
 
         # Save to database
@@ -187,13 +188,22 @@ class BacktestEngine:
             for c in candlesticks['candlesticks']
         }
 
+        def _parse_price(val):
+            """Convert close_dollars string to cents float, or None."""
+            if val is None:
+                return None
+            try:
+                return float(val) * 100
+            except (TypeError, ValueError):
+                return None
+
         for timestamp in timestamps:
             ts_rounded = date_helpers.round_to_next_minute(timestamp)
             if ts_rounded in candle_map:
                 candle = candle_map[ts_rounded]
                 prices[ts_rounded] = {
-                    'bid': candle['yes_bid']['close'] if candle['yes_bid']['close'] is not None else None,
-                    'ask': candle['yes_ask']['close'] if candle['yes_ask']['close'] is not None else None
+                    'bid': _parse_price(candle.get('yes_bid', {}).get('close_dollars')),
+                    'ask': _parse_price(candle.get('yes_ask', {}).get('close_dollars'))
                 }
             else:
                 prices[ts_rounded] = {'bid': None, 'ask': None}

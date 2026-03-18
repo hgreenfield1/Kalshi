@@ -25,6 +25,10 @@ class SimpleBacktestStrategy(BaseStrategy):
             params={}
         )]
 
+    def on_resolution(self, context, outcome: bool):
+        """Reset per-market state so strategy is fresh for the next market."""
+        self.last_trade_time = None
+
     def on_timestep(self, context):
         game = context.auxiliary_data.get('game')
         if not game or game.status != "In Progress":
@@ -70,12 +74,12 @@ class SimpleBacktestStrategy(BaseStrategy):
                 return 0
 
         # Buy signal
-        if mid_price - ask_price >= 15 and ask_price > 15:
+        if mid_price - ask_price >= 5 and ask_price > 15:
             if current_positions < self.position_limits[1]:
                 return 1
 
         # Sell signal
-        if bid_price - mid_price >= 15 and bid_price < 85:
+        if bid_price - mid_price >= 5 and bid_price < 85:
             if current_positions > self.position_limits[0]:
                 return -1
 
@@ -188,6 +192,11 @@ class ReverseSteamStrategy(SimpleBacktestStrategy):
         self.price_history = deque(maxlen=10)  # 10-minute window
         self.model_history = deque(maxlen=10)
 
+    def on_resolution(self, context, outcome: bool):
+        super().on_resolution(context, outcome)
+        self.price_history.clear()
+        self.model_history.clear()
+
     def on_timestep(self, context):
         game = context.auxiliary_data.get('game')
         if not game or game.status != "In Progress":
@@ -237,6 +246,11 @@ class ChangeInValueStrategy(SimpleBacktestStrategy):
         self.model_history = deque(maxlen=10)
         self.min_change = 5
         self.multiplier = 2.0
+
+    def on_resolution(self, context, outcome: bool):
+        super().on_resolution(context, outcome)
+        self.price_history.clear()
+        self.model_history.clear()
 
     def on_timestep(self, context):
         game = context.auxiliary_data.get('game')
