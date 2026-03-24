@@ -4,6 +4,7 @@ from typing import List
 
 # Common date format constants
 ISO_UTC_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+ISO_UTC_MS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 GAME_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 MINUTE_INTERVAL = timedelta(minutes=1)
 
@@ -19,14 +20,15 @@ def convert_utc_to_game_timestamp(timestamp_str: str) -> str:
     Returns:
         Timestamp in game format ('20250101_120000')
     """
-    try:
-        # Check if already in game format
-        datetime.strptime(timestamp_str, GAME_TIMESTAMP_FORMAT)
-        return timestamp_str
-    except ValueError:
-        # Convert from ISO UTC format
-        dt_utc = datetime.strptime(timestamp_str, ISO_UTC_FORMAT).replace(tzinfo=timezone.utc)
-        return dt_utc.strftime(GAME_TIMESTAMP_FORMAT)
+    for fmt in (GAME_TIMESTAMP_FORMAT, ISO_UTC_FORMAT, ISO_UTC_MS_FORMAT):
+        try:
+            dt = datetime.strptime(timestamp_str, fmt).replace(tzinfo=timezone.utc)
+            if fmt == GAME_TIMESTAMP_FORMAT:
+                return timestamp_str
+            return dt.strftime(GAME_TIMESTAMP_FORMAT)
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognised timestamp format: {timestamp_str!r}")
 
 
 def get_backtest_timestamps(start_time_str: str, end_time_str: str) -> List[str]:
@@ -63,7 +65,7 @@ def game_timestamp_to_unix(timestamp_str: str) -> int:
     Returns:
         Unix timestamp as int
     """
-    for fmt in (GAME_TIMESTAMP_FORMAT, ISO_UTC_FORMAT):
+    for fmt in (GAME_TIMESTAMP_FORMAT, ISO_UTC_FORMAT, ISO_UTC_MS_FORMAT):
         try:
             dt = datetime.strptime(timestamp_str, fmt).replace(tzinfo=timezone.utc)
             return int(dt.timestamp())

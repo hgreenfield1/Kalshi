@@ -76,7 +76,7 @@ class BacktestEngine:
                 metadata={'strategy_version': self.strategy.version}
             )
 
-            # Get orders from strategy
+             # Get orders from strategy
             orders = self.strategy.on_timestep(context)
 
             # Execute orders

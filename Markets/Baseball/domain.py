@@ -3,6 +3,8 @@ import logging
 from datetime import datetime
 from Infrastructure.market import Market
 from Markets.Baseball.utils import mlb_teams, getProbability
+from Markets.Baseball.game_state import GameState, LEAGUE_AVG_K_PCT, LEAGUE_AVG_BB_PCT
+from Markets.Baseball.win_prob_model import get_win_prob_model, runner_index_to_flags
 import Utils.date_helpers as date_helpers
 
 
@@ -76,6 +78,13 @@ class BaseballGame:
         self.runner_index = 0
         self.captivating_index = 0
 
+        # Pitcher features — populated during load or live update
+        self.pitcher_pitch_count = 0
+        self.home_sp_k_pct  = LEAGUE_AVG_K_PCT
+        self.home_sp_bb_pct = LEAGUE_AVG_BB_PCT
+        self.away_sp_k_pct  = LEAGUE_AVG_K_PCT
+        self.away_sp_bb_pct = LEAGUE_AVG_BB_PCT
+
     def update_status(self, timestamp=None, game_data_cache=None):
         if game_data_cache and timestamp and timestamp in game_data_cache:
             game_data = game_data_cache[timestamp]
@@ -101,6 +110,7 @@ class BaseballGame:
             self.strikes = current_play['count']['strikes']
             self.runner_index = self.get_runner_state(current_play['runners'])
             self.captivating_index = current_play['about']['captivatingIndex']
+            self._update_pitcher_pitch_count(game_data)
             self.roll_status()
             self.winProbability = self.get_win_probability()
 
@@ -126,12 +136,37 @@ class BaseballGame:
 
         self.pctPlayed = self.calc_pct_played()
 
+    def to_game_state(self) -> GameState:
+        """Convert to a GameState for model prediction."""
+        on_1b, on_2b, on_3b = runner_index_to_flags(self.runner_index)
+        return GameState(
+            inning=self.inning,
+            is_top_inning=self.isTopInning,
+            outs=self.outs,
+            on_1b=on_1b,
+            on_2b=on_2b,
+            on_3b=on_3b,
+            score_diff=self.net_score,
+            balls=self.balls,
+            strikes=self.strikes,
+            pitcher_pitch_count=self.pitcher_pitch_count,
+            home_sp_k_pct=self.home_sp_k_pct,
+            home_sp_bb_pct=self.home_sp_bb_pct,
+            away_sp_k_pct=self.away_sp_k_pct,
+            away_sp_bb_pct=self.away_sp_bb_pct,
+        )
+
     def get_win_probability(self):
+        # Try the trained Statcast model first
+        model = get_win_prob_model()
+        if model is not None:
+            return model.predict(self.to_game_state()) * 100
+
+        # Fall back to the legacy lookup table if the model hasn't been trained yet
         if self.isTopInning:
             homeOrVisitor = 'V'
         else:
             homeOrVisitor = 'H'
-
         prob = getProbability(homeOrVisitor, self.inning, self.outs, self.runner_index, self.net_score)
         if prob != -1:
             prob = prob * 100
@@ -143,6 +178,79 @@ class BaseballGame:
         strike_pct = self.strikes / (9 * 2 * 3 * 3)
 
         return min(inning_pct + out_pct + strike_pct, 1)
+
+    def set_pregame_state(self):
+        """Reset game state to pre-game defaults."""
+        self.status = "Pre-Game"
+        self.inning = 1
+        self.isTopInning = True
+        self.outs = 0
+        self.balls = 0
+        self.strikes = 0
+        self.runner_index = 1  # bases empty
+        self.home_score = 0
+        self.away_score = 0
+        self.net_score = 0
+        self.winProbability = -1
+        self.pctPlayed = 0
+
+    def update_from_play(self, play, start_outs, start_home_score, start_away_score, is_final=False, pitcher_pitch_count=0):
+        """Update game state from a completed play (single-fetch mode)."""
+        if is_final:
+            self.status = "Final"
+            self.inning = 9
+            self.isTopInning = False
+            self.outs = 3
+            self.strikes = 3
+            self.balls = 0
+        else:
+            self.status = "In Progress"
+            self.inning = play['about']['inning']
+            self.isTopInning = play['about']['isTopInning']
+            self.outs = start_outs
+            self.balls = 0
+            self.strikes = 0
+            self.pitcher_pitch_count = pitcher_pitch_count
+            self.captivating_index = play['about'].get('captivatingIndex', 0)
+            self.runner_index = self.get_runner_state(play['runners'])
+            self.roll_status()
+            self.winProbability = self.get_win_probability()
+
+        self.home_score = start_home_score
+        self.away_score = start_away_score
+        self.net_score = self.home_score - self.away_score
+        self.pctPlayed = self.calc_pct_played()
+
+    def _update_pitcher_pitch_count(self, game_data):
+        """Extract current pitcher's pitch count from live boxscore data."""
+        try:
+            linescore = game_data['liveData']['linescore']
+            is_top = linescore.get('isTopInning', True)
+            # When top inning: away batting, home pitching
+            pitching_side = 'home' if is_top else 'away'
+            players = game_data['liveData']['boxscore']['teams'][pitching_side]['players']
+            for player_data in players.values():
+                if player_data.get('position', {}).get('abbreviation') == 'P':
+                    pitching_stats = player_data.get('stats', {}).get('pitching', {})
+                    if pitching_stats.get('numberOfPitches') is not None:
+                        self.pitcher_pitch_count = int(pitching_stats['numberOfPitches'])
+                        return
+        except Exception as e:
+            logging.warning(f"Could not extract pitcher pitch count: {e}")
+
+    def load_starter_stats(self, pitcher_stats: dict):
+        """Load starting pitcher quality stats from a pre-built lookup dict.
+
+        Args:
+            pitcher_stats: {team_abv: {'k_pct': float, 'bb_pct': float}}
+        """
+        home = pitcher_stats.get(self.home_team_abv, {})
+        self.home_sp_k_pct  = home.get('k_pct',  LEAGUE_AVG_K_PCT)
+        self.home_sp_bb_pct = home.get('bb_pct', LEAGUE_AVG_BB_PCT)
+
+        away = pitcher_stats.get(self.away_team_abv, {})
+        self.away_sp_k_pct  = away.get('k_pct',  LEAGUE_AVG_K_PCT)
+        self.away_sp_bb_pct = away.get('bb_pct', LEAGUE_AVG_BB_PCT)
 
     def update_pregame_win_probability(self, market, http_client):
         start_unix = date_helpers.game_timestamp_to_unix(self.start_time)

@@ -1,4 +1,22 @@
-henry.txt
+# Model artifacts
+*.pkl
+
+# Large data files
+*.db
+*.parquet
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Environment
 .env
-*.pyc
-*.csv
+*.env
+
+# IDE
+.vscode/
+.idea/

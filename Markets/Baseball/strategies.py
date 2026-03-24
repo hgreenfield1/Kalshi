@@ -1,12 +1,146 @@
 from Core.strategy import BaseStrategy, DataRequirement, Order, OrderSide
 from Markets.Baseball.prediction import get_prediction_model_by_version
 from collections import deque
-import logging
-import Utils.date_helpers as date_helpers
 
 
-class SimpleBacktestStrategy(BaseStrategy):
-    """Simple baseball strategy (v1.1.0)."""
+class BaseMLBStrategy(BaseStrategy):
+    """
+    Shared infrastructure for MLB strategies:
+      - Signal state tracking: only trades on signal transitions (None → 'long'/'short')
+      - Kelly criterion sizing: fractional Kelly scales contracts by edge magnitude
+      - Early exit: profit target, stop loss, and model reversal exits
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._active_signal = None  # 'long', 'short', or None
+        self._entry_price = None    # price at which current position was opened
+        self.position_limits = (-10, 10)
+        self.kelly_fraction = 0.25
+        self.profit_target_pts = 35
+        self.stop_loss_pts = 25
+
+    def _kelly_contracts(self, model_prob: float, price: float, cash: float, side: str) -> int:
+        """Fractional Kelly contract sizing.
+
+        Buy:   f = (model_prob - ask) / (100 - ask)
+        Short: f = (bid - model_prob) / bid
+        Scale by kelly_fraction * max_position. Floor at 1, cap by cash.
+        """
+        if side == 'long':
+            edge, denom = model_prob - price, 100 - price
+        else:
+            edge, denom = price - model_prob, price
+
+        if denom <= 0 or edge <= 0:
+            return 0
+
+        kelly_f = (edge / denom) * self.kelly_fraction
+        kelly_qty = max(1, round(kelly_f * self.position_limits[1]))
+
+        cost_per = (price / 100) if side == 'long' else ((100 - price) / 100)
+        cash_limit = int(cash / cost_per) if cost_per > 0 else 0
+
+        return min(kelly_qty, cash_limit, self.position_limits[1])
+
+    def _check_early_exit(self, positions: int, bid: float, ask: float, model_prob: float):
+        """Return 'close_long', 'close_short', or None."""
+        if positions == 0 or self._entry_price is None:
+            return None
+
+        if positions > 0:
+            pnl = bid - self._entry_price
+            if pnl >= self.profit_target_pts:
+                return 'close_long'
+            if pnl <= -self.stop_loss_pts:
+                return 'close_long'
+            if model_prob < 50:  # model reversed to bearish
+                return 'close_long'
+
+        elif positions < 0:
+            pnl = self._entry_price - ask
+            if pnl >= self.profit_target_pts:
+                return 'close_short'
+            if pnl <= -self.stop_loss_pts:
+                return 'close_short'
+            if model_prob > 50:  # model reversed to bullish
+                return 'close_short'
+
+        return None
+
+    def _compute_signal(self, context, model_prob: float):
+        """Override in subclass. Return 'long', 'short', or None."""
+        raise NotImplementedError
+
+    def on_timestep(self, context):
+        game = context.auxiliary_data.get('game')
+        if not game or game.status != "In Progress":
+            return []
+
+        model_prob = self.prediction_model.calculate_expected_win_prob(game)
+        if model_prob is None or model_prob == -1:
+            return []
+
+        bid = context.bid_price
+        ask = context.ask_price
+        if bid is None or ask is None:
+            return []
+
+        positions = context.portfolio_snapshot['positions']
+        cash = context.portfolio_snapshot['cash']
+        orders = []
+
+        # --- Early exit ---
+        exit_action = self._check_early_exit(positions, bid, ask, model_prob)
+        if exit_action == 'close_long' and positions > 0:
+            orders.append(Order(OrderSide.SELL, positions, bid))
+            self._active_signal = None
+            self._entry_price = None
+            return orders
+        elif exit_action == 'close_short' and positions < 0:
+            orders.append(Order(OrderSide.BUY, abs(positions), ask))
+            self._active_signal = None
+            self._entry_price = None
+            return orders
+
+        # --- Signal state: only trade on transitions ---
+        new_signal = self._compute_signal(context, model_prob)
+        if new_signal == self._active_signal:
+            return []
+
+        self._active_signal = new_signal
+
+        if new_signal == 'long' and positions < self.position_limits[1]:
+            qty = self._kelly_contracts(model_prob, ask, cash, 'long')
+            if qty > 0:
+                orders.append(Order(OrderSide.BUY, qty, ask))
+                self._entry_price = ask
+
+        elif new_signal == 'short' and positions > self.position_limits[0]:
+            qty = self._kelly_contracts(model_prob, bid, cash, 'short')
+            if qty > 0:
+                orders.append(Order(OrderSide.SELL, qty, bid))
+                self._entry_price = bid
+
+        return orders
+
+    def on_resolution(self, context, outcome: bool):
+        self._active_signal = None
+        self._entry_price = None
+
+
+class FavoriteLongShotStrategy(BaseMLBStrategy):
+    """
+    Exploits the favorite-longshot bias: markets systematically underprice heavy
+    favorites and overprice longshots relative to true probability.
+
+    Only trades when the model has strong conviction (win prob far from 50%),
+    and the market hasn't priced that conviction in.
+
+    Signal:
+      long  — model >= conviction_threshold AND model - ask >= edge_threshold
+      short — model <= (100 - conviction_threshold) AND bid - model >= edge_threshold
+    """
 
     _version = "v1.1.0"
     _prediction_model_version = "v1.1.0"
@@ -14,9 +148,8 @@ class SimpleBacktestStrategy(BaseStrategy):
     def __init__(self):
         super().__init__()
         self.prediction_model = get_prediction_model_by_version(self._prediction_model_version)
-        self.last_trade_time = None
-        self.position_limits = (-10, 10)
-        self.trade_cooldown_minutes = 10
+        self.conviction_threshold = 60
+        self.edge_threshold = 5
 
     def get_data_requirements(self):
         return [DataRequirement(
@@ -25,262 +158,65 @@ class SimpleBacktestStrategy(BaseStrategy):
             params={}
         )]
 
-    def on_resolution(self, context, outcome: bool):
-        """Reset per-market state so strategy is fresh for the next market."""
-        self.last_trade_time = None
-
-    def on_timestep(self, context):
-        game = context.auxiliary_data.get('game')
-        if not game or game.status != "In Progress":
-            return []
-
-        # Calculate mid-price from prediction model
-        mid_price = self.prediction_model.calculate_expected_win_prob(game)
-        if mid_price == -1 or mid_price is None:
-            return []
-
-        # Calculate signal
-        signal = self._calculate_signal(
-            context.timestamp,
-            mid_price,
-            context.bid_price,
-            context.ask_price,
-            context.portfolio_snapshot['positions']
-        )
-
-        # Generate orders
-        orders = []
-        if signal > 0:
-            orders.append(Order(OrderSide.BUY, signal, context.ask_price))
-        elif signal < 0:
-            orders.append(Order(OrderSide.SELL, abs(signal), context.bid_price))
-
-        if orders:
-            self.last_trade_time = context.timestamp
-
-        return orders
-
-    def _calculate_signal(self, timestamp, mid_price, bid_price, ask_price, current_positions):
-        """Calculate trading signal."""
-        if bid_price is None or ask_price is None:
-            return 0
-
-        # Trade cooldown
-        if self.last_trade_time:
-            minutes_since_trade = date_helpers.minutes_between_timestamps(
-                self.last_trade_time, timestamp
-            )
-            if minutes_since_trade < self.trade_cooldown_minutes:
-                return 0
-
-        # Buy signal
-        if mid_price - ask_price >= 5 and ask_price > 15:
-            if current_positions < self.position_limits[1]:
-                return 1
-
-        # Sell signal
-        if bid_price - mid_price >= 5 and bid_price < 85:
-            if current_positions > self.position_limits[0]:
-                return -1
-
-        return 0
+    def _compute_signal(self, context, model_prob: float):
+        bid = context.bid_price
+        ask = context.ask_price
+        if model_prob >= self.conviction_threshold and model_prob - ask >= self.edge_threshold:
+            return 'long'
+        if model_prob <= (100 - self.conviction_threshold) and bid - model_prob >= self.edge_threshold:
+            return 'short'
+        return None
 
 
-class ConservativeBacktestStrategy(SimpleBacktestStrategy):
-    """Conservative strategy with higher thresholds."""
+class MeanReversionStrategy(BaseMLBStrategy):
+    """
+    Fades market overreactions: when the market moves significantly more than
+    the model suggests, trade against the direction of the move.
 
-    _version = "v2.0.0"
+    Tracks rolling windows of market mid-price and model probability.
+    Signal:
+      short — price_change - model_change > overreaction_threshold  (market ran up too much)
+      long  — model_change - price_change > overreaction_threshold  (market dropped too much)
+    """
+
+    _version = "v2.1.0"
     _prediction_model_version = "v1.1.0"
 
     def __init__(self):
         super().__init__()
-        self.position_limits = (-5, 5)
-        self.trade_cooldown_minutes = 15
-        self.threshold = 20
-        self.price_min = 20
-        self.price_max = 80
+        self.prediction_model = get_prediction_model_by_version(self._prediction_model_version)
+        self.window_minutes = 10
+        self.overreaction_threshold = 5
+        self.price_history = deque(maxlen=self.window_minutes)
+        self.model_history = deque(maxlen=self.window_minutes)
 
-    def _calculate_signal(self, timestamp, mid_price, bid_price, ask_price, current_positions):
-        if bid_price is None or ask_price is None:
-            return 0
+    def get_data_requirements(self):
+        return [DataRequirement(
+            data_key="game",
+            loader_class="Markets.Baseball.data_loader.BaseballDataLoader",
+            params={}
+        )]
 
-        # Price constraints
-        if bid_price < self.price_min or ask_price > self.price_max:
-            return 0
+    def _compute_signal(self, context, model_prob: float):
+        mid = context.mid_price
+        if mid is not None:
+            self.price_history.append(mid)
+        self.model_history.append(model_prob)
 
-        # Trade cooldown
-        if self.last_trade_time:
-            minutes_since_trade = date_helpers.minutes_between_timestamps(
-                self.last_trade_time, timestamp
-            )
-            if minutes_since_trade < self.trade_cooldown_minutes:
-                return 0
+        if len(self.price_history) < self.window_minutes or len(self.model_history) < self.window_minutes:
+            return None
 
-        # Buy/sell with higher threshold
-        if mid_price - ask_price >= self.threshold and current_positions < self.position_limits[1]:
-            return 1
-        if bid_price - mid_price >= self.threshold and current_positions > self.position_limits[0]:
-            return -1
+        price_change = self.price_history[-1] - self.price_history[0]
+        model_change = self.model_history[-1] - self.model_history[0]
+        overreaction = price_change - model_change
 
-        return 0
-
-
-class AggressiveValueStrategy(SimpleBacktestStrategy):
-    """Aggressive strategy with position scaling."""
-
-    _version = "v3.0.0"
-    _prediction_model_version = "v1.1.0"
-
-    def __init__(self):
-        super().__init__()
-        self.position_limits = (-20, 20)
-        self.trade_cooldown_minutes = 5
-        self.threshold = 5
-
-    def _calculate_signal(self, timestamp, mid_price, bid_price, ask_price, current_positions):
-        if bid_price is None or ask_price is None:
-            return 0
-
-        # Trade cooldown
-        if self.last_trade_time:
-            minutes_since_trade = date_helpers.minutes_between_timestamps(
-                self.last_trade_time, timestamp
-            )
-            if minutes_since_trade < self.trade_cooldown_minutes:
-                return 0
-
-        # Calculate edge
-        buy_edge = mid_price - ask_price
-        sell_edge = bid_price - mid_price
-
-        # Position scaling based on edge
-        if buy_edge >= self.threshold:
-            if buy_edge >= 15:
-                position_size = 3
-            elif buy_edge >= 10:
-                position_size = 2
-            else:
-                position_size = 1
-
-            if current_positions + position_size <= self.position_limits[1]:
-                return position_size
-
-        if sell_edge >= self.threshold:
-            if sell_edge >= 15:
-                position_size = 3
-            elif sell_edge >= 10:
-                position_size = 2
-            else:
-                position_size = 1
-
-            if current_positions - position_size >= self.position_limits[0]:
-                return -position_size
-
-        return 0
-
-
-class ReverseSteamStrategy(SimpleBacktestStrategy):
-    """Mean reversion strategy tracking price momentum."""
-
-    _version = "v4.0.0"
-    _prediction_model_version = "v1.1.0"
-
-    def __init__(self):
-        super().__init__()
-        self.position_limits = (-10, 10)
-        self.trade_cooldown_minutes = 10
-        self.price_history = deque(maxlen=10)  # 10-minute window
-        self.model_history = deque(maxlen=10)
+        if overreaction > self.overreaction_threshold:
+            return 'short'
+        if overreaction < -self.overreaction_threshold:
+            return 'long'
+        return None
 
     def on_resolution(self, context, outcome: bool):
         super().on_resolution(context, outcome)
         self.price_history.clear()
         self.model_history.clear()
-
-    def on_timestep(self, context):
-        game = context.auxiliary_data.get('game')
-        if not game or game.status != "In Progress":
-            return []
-
-        mid_price = self.prediction_model.calculate_expected_win_prob(game)
-        if mid_price == -1 or mid_price is None:
-            return []
-
-        # Track history
-        if context.mid_price:
-            self.price_history.append(context.mid_price)
-        self.model_history.append(mid_price)
-
-        # Need enough history
-        if len(self.price_history) < 2 or len(self.model_history) < 2:
-            return []
-
-        # Calculate changes
-        price_change = self.price_history[-1] - self.price_history[0]
-        model_change = self.model_history[-1] - self.model_history[0]
-
-        # Signal when market overreacts (>1.5x model change)
-        orders = []
-        if abs(price_change) > 1.5 * abs(model_change):
-            if price_change > 0:  # Market went up too much, sell
-                if context.portfolio_snapshot['positions'] > self.position_limits[0]:
-                    orders.append(Order(OrderSide.SELL, 1, context.bid_price))
-            elif price_change < 0:  # Market went down too much, buy
-                if context.portfolio_snapshot['positions'] < self.position_limits[1]:
-                    orders.append(Order(OrderSide.BUY, 1, context.ask_price))
-
-        return orders
-
-
-class ChangeInValueStrategy(SimpleBacktestStrategy):
-    """Trade on divergence between model and market changes."""
-
-    _version = "v5.0.0"
-    _prediction_model_version = "v1.1.0"
-
-    def __init__(self):
-        super().__init__()
-        self.position_limits = (-10, 10)
-        self.trade_cooldown_minutes = 10
-        self.price_history = deque(maxlen=10)
-        self.model_history = deque(maxlen=10)
-        self.min_change = 5
-        self.multiplier = 2.0
-
-    def on_resolution(self, context, outcome: bool):
-        super().on_resolution(context, outcome)
-        self.price_history.clear()
-        self.model_history.clear()
-
-    def on_timestep(self, context):
-        game = context.auxiliary_data.get('game')
-        if not game or game.status != "In Progress":
-            return []
-
-        mid_price = self.prediction_model.calculate_expected_win_prob(game)
-        if mid_price == -1 or mid_price is None:
-            return []
-
-        # Track history
-        if context.mid_price:
-            self.price_history.append(context.mid_price)
-        self.model_history.append(mid_price)
-
-        if len(self.price_history) < 2 or len(self.model_history) < 2:
-            return []
-
-        # Calculate changes
-        price_change = self.price_history[-1] - self.price_history[0]
-        model_change = self.model_history[-1] - self.model_history[0]
-
-        # Trade when model change exceeds market change by multiplier
-        orders = []
-        if abs(model_change) >= self.min_change:
-            if model_change > self.multiplier * price_change:  # Model up more than market
-                if context.portfolio_snapshot['positions'] < self.position_limits[1]:
-                    orders.append(Order(OrderSide.BUY, 1, context.ask_price))
-            elif model_change < self.multiplier * price_change:  # Model down more than market
-                if context.portfolio_snapshot['positions'] > self.position_limits[0]:
-                    orders.append(Order(OrderSide.SELL, 1, context.bid_price))
-
-        return orders

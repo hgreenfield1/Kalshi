@@ -14,11 +14,8 @@ from Infrastructure.Clients.get_clients import get_http_client
 
 # Import market-specific components
 from Markets.Baseball.strategies import (
-    SimpleBacktestStrategy,
-    ConservativeBacktestStrategy,
-    AggressiveValueStrategy,
-    ReverseSteamStrategy,
-    ChangeInValueStrategy
+    FavoriteLongShotStrategy,
+    MeanReversionStrategy,
 )
 from Markets.Baseball.config import SERIES_TICKER, MARKET_TYPE
 
@@ -29,11 +26,8 @@ logging.basicConfig(
 )
 
 BASEBALL_STRATEGIES = {
-    '1': ('Simple', SimpleBacktestStrategy),
-    '2': ('Conservative', ConservativeBacktestStrategy),
-    '3': ('AggressiveValue', AggressiveValueStrategy),
-    '4': ('ReverseSteam', ReverseSteamStrategy),
-    '5': ('ChangeInValue', ChangeInValueStrategy),
+    '1': ('FavoriteLongShot', FavoriteLongShotStrategy),
+    '2': ('MeanReversion', MeanReversionStrategy),
 }
 
 def select_strategies():

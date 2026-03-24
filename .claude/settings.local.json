@@ -1,13 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git reset:*)",
-      "Bash(python:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(sqlite3:*)",
-      "Bash(find /c/Users/henry/Kalshi/Infrastructure/Clients -type f -name *.py)"
+      "Bash",
+      "Read",
+      "WebSearch",
+      "WebFetch",
+      "Greb",
+      "Glob"
     ],
     "deny": []
   }
