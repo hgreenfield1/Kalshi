@@ -66,12 +66,28 @@ class GameState:
     away_sp_k_pct:  float = LEAGUE_AVG_K_PCT
     away_sp_bb_pct: float = LEAGUE_AVG_BB_PCT
 
+    # Batter-pitcher matchup features
+    is_starter: int = 1                      # 1 = starter on mound, 0 = reliever
+    current_pitcher_k_pct:  float = LEAGUE_AVG_K_PCT   # actual current pitcher K%
+    current_pitcher_bb_pct: float = LEAGUE_AVG_BB_PCT
+    platoon_adv_batter: int = 0              # 1 if batter has hand advantage vs pitcher
+    batting_order_pos: int = 5               # 1-9; default middle of order
+
+    # Team quality — previous season run differential per game
+    home_run_diff_per_game: float = 0.0
+    away_run_diff_per_game: float = 0.0
+
     @classmethod
     def from_statcast_row(cls, row) -> GameState:
         """
         Construct from a pybaseball Statcast row (pd.Series or dict).
-        Pitcher fields are read if the columns exist, otherwise use defaults.
+        All fields read if the columns exist, otherwise use defaults.
         """
+        def _f(col, default):
+            return float(row[col]) if col in row and pd.notna(row[col]) else default
+        def _i(col, default):
+            return int(row[col]) if col in row and pd.notna(row[col]) else default
+
         return cls(
             inning=int(row['inning']),
             is_top_inning=str(row['inning_topbot']).startswith('T'),
@@ -82,11 +98,18 @@ class GameState:
             score_diff=int(row['home_score']) - int(row['away_score']),
             balls=int(row['balls']),
             strikes=int(row['strikes']),
-            pitcher_pitch_count=int(row['pitcher_pitch_count']) if 'pitcher_pitch_count' in row else 0,
-            home_sp_k_pct=float(row['home_sp_k_pct'])   if 'home_sp_k_pct'  in row and pd.notna(row['home_sp_k_pct'])  else LEAGUE_AVG_K_PCT,
-            home_sp_bb_pct=float(row['home_sp_bb_pct']) if 'home_sp_bb_pct' in row and pd.notna(row['home_sp_bb_pct']) else LEAGUE_AVG_BB_PCT,
-            away_sp_k_pct=float(row['away_sp_k_pct'])   if 'away_sp_k_pct'  in row and pd.notna(row['away_sp_k_pct'])  else LEAGUE_AVG_K_PCT,
-            away_sp_bb_pct=float(row['away_sp_bb_pct']) if 'away_sp_bb_pct' in row and pd.notna(row['away_sp_bb_pct']) else LEAGUE_AVG_BB_PCT,
+            pitcher_pitch_count=_i('pitcher_pitch_count', 0),
+            home_sp_k_pct=_f('home_sp_k_pct', LEAGUE_AVG_K_PCT),
+            home_sp_bb_pct=_f('home_sp_bb_pct', LEAGUE_AVG_BB_PCT),
+            away_sp_k_pct=_f('away_sp_k_pct', LEAGUE_AVG_K_PCT),
+            away_sp_bb_pct=_f('away_sp_bb_pct', LEAGUE_AVG_BB_PCT),
+            is_starter=_i('is_starter', 1),
+            current_pitcher_k_pct=_f('current_pitcher_k_pct', LEAGUE_AVG_K_PCT),
+            current_pitcher_bb_pct=_f('current_pitcher_bb_pct', LEAGUE_AVG_BB_PCT),
+            platoon_adv_batter=_i('platoon_adv_batter', 0),
+            batting_order_pos=_i('batting_order_pos', 5),
+            home_run_diff_per_game=_f('home_run_diff_per_game', 0.0),
+            away_run_diff_per_game=_f('away_run_diff_per_game', 0.0),
         )
 
 
@@ -240,10 +263,93 @@ class PitcherFeatureProvider(FeatureProvider):
 
 
 # ---------------------------------------------------------------------------
+# BatterPitcherFeatureProvider — matchup context, current pitcher quality
+# ---------------------------------------------------------------------------
+
+class BatterPitcherFeatureProvider(FeatureProvider):
+    """
+    Batter-pitcher matchup and current pitcher quality features.
+
+    Features:
+        is_starter           - 1 if starting pitcher still on mound, 0 if reliever
+        current_pitcher_k_pct/bb_pct  - blended prev+current K%/BB% for actual pitcher
+        batting_order_pos    - batter's lineup slot (1-9)
+
+    Note: platoon_adv_batter was removed after showing zero feature importance —
+    handedness matchup doesn't meaningfully predict game outcomes at pitch level.
+    """
+
+    FEATURE_NAMES = [
+        'is_starter',
+        'current_pitcher_k_pct',
+        'current_pitcher_bb_pct',
+        'batting_order_pos',
+    ]
+
+    def get_features(self, state: GameState) -> dict[str, float]:
+        return {
+            'is_starter':             float(state.is_starter),
+            'current_pitcher_k_pct':  float(state.current_pitcher_k_pct),
+            'current_pitcher_bb_pct': float(state.current_pitcher_bb_pct),
+            'batting_order_pos':      float(state.batting_order_pos),
+        }
+
+    def get_features_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        result = pd.DataFrame(index=df.index)
+        result['is_starter']             = df['is_starter'].fillna(1).astype(float)
+        result['current_pitcher_k_pct']  = df['current_pitcher_k_pct'].fillna(LEAGUE_AVG_K_PCT).astype(float)
+        result['current_pitcher_bb_pct'] = df['current_pitcher_bb_pct'].fillna(LEAGUE_AVG_BB_PCT).astype(float)
+        result['batting_order_pos']      = df['batting_order_pos'].fillna(5).clip(lower=1, upper=9).astype(float)
+        return result[self.FEATURE_NAMES]
+
+    @property
+    def feature_names(self) -> list[str]:
+        return self.FEATURE_NAMES
+
+
+# ---------------------------------------------------------------------------
+# TeamQualityFeatureProvider — previous-season run differential
+# ---------------------------------------------------------------------------
+
+class TeamQualityFeatureProvider(FeatureProvider):
+    """
+    Team offensive quality from previous season run differential per game.
+
+    Run differential per game is a strong team quality signal that is more
+    stable than win% and captures both offense and defense simultaneously.
+    Using the previous season avoids any look-ahead bias.
+
+    Features:
+        home_run_diff_per_game - home team's (RS - RA) / G from prior season
+        away_run_diff_per_game - away team's (RS - RA) / G from prior season
+    """
+
+    FEATURE_NAMES = ['home_run_diff_per_game', 'away_run_diff_per_game']
+
+    def get_features(self, state: GameState) -> dict[str, float]:
+        return {
+            'home_run_diff_per_game': float(state.home_run_diff_per_game),
+            'away_run_diff_per_game': float(state.away_run_diff_per_game),
+        }
+
+    def get_features_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        result = pd.DataFrame(index=df.index)
+        result['home_run_diff_per_game'] = df['home_run_diff_per_game'].fillna(0.0).astype(float)
+        result['away_run_diff_per_game'] = df['away_run_diff_per_game'].fillna(0.0).astype(float)
+        return result[self.FEATURE_NAMES]
+
+    @property
+    def feature_names(self) -> list[str]:
+        return self.FEATURE_NAMES
+
+
+# ---------------------------------------------------------------------------
 # Registry — maps saved names back to provider classes
 # ---------------------------------------------------------------------------
 
 PROVIDER_REGISTRY: dict[str, type[FeatureProvider]] = {
-    'GameStateFeatureProvider': GameStateFeatureProvider,
-    'PitcherFeatureProvider':   PitcherFeatureProvider,
+    'GameStateFeatureProvider':     GameStateFeatureProvider,
+    'PitcherFeatureProvider':       PitcherFeatureProvider,
+    'BatterPitcherFeatureProvider': BatterPitcherFeatureProvider,
+    'TeamQualityFeatureProvider':   TeamQualityFeatureProvider,
 }

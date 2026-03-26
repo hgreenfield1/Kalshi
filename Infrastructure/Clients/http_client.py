@@ -47,7 +47,8 @@ class KalshiHttpClient(KalshiBaseClient):
         response = requests.post(
             self.host + path,
             json=body,
-            headers=self.request_headers("POST", path)
+            headers=self.request_headers("POST", path),
+            timeout=30
         )
         self.raise_if_bad_response(response)
         return response.json()
@@ -58,7 +59,8 @@ class KalshiHttpClient(KalshiBaseClient):
         response = requests.get(
             self.host + path,
             headers=self.request_headers("GET", path),
-            params=params
+            params=params,
+            timeout=30
         )
         self.raise_if_bad_response(response)
         return response.json()
@@ -69,7 +71,8 @@ class KalshiHttpClient(KalshiBaseClient):
         response = requests.delete(
             self.host + path,
             headers=self.request_headers("DELETE", path),
-            params=params
+            params=params,
+            timeout=30
         )
         self.raise_if_bad_response(response)
         return response.json()

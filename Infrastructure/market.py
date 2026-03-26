@@ -45,5 +45,15 @@ class Market:
         for key, val in market_dict.items():
             setattr(self, key, val)
 
+        # API v2 returns _dollars suffix for price fields — normalise to base names
+        if self.yes_bid is None:
+            self.yes_bid = getattr(self, 'yes_bid_dollars', None)
+        if self.yes_ask is None:
+            self.yes_ask = getattr(self, 'yes_ask_dollars', None)
+        if self.no_bid is None:
+            self.no_bid = getattr(self, 'no_bid_dollars', None)
+        if self.no_ask is None:
+            self.no_ask = getattr(self, 'no_ask_dollars', None)
+
         if self.series_ticker is None:
             self.series_ticker = self.ticker.split('-')[0]

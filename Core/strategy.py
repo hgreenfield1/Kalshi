@@ -51,3 +51,23 @@ class BaseStrategy(ABC):
     def on_resolution(self, context, outcome: bool):
         """Called when market resolves. Optional hook."""
         pass
+
+    def save_state(self) -> dict:
+        """
+        Serialize strategy state for crash recovery.
+        Subclasses should call super().save_state() and merge their own fields.
+        """
+        return {
+            'active_signal': getattr(self, '_active_signal', None),
+            'entry_price': getattr(self, '_entry_price', None),
+        }
+
+    def restore_state(self, state: dict) -> None:
+        """
+        Restore strategy state after a crash. Called before the first tick.
+        Subclasses should call super().restore_state(state) first.
+        """
+        if hasattr(self, '_active_signal'):
+            self._active_signal = state.get('active_signal')
+        if hasattr(self, '_entry_price'):
+            self._entry_price = state.get('entry_price')

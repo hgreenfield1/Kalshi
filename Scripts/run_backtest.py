@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generic backtesting CLI."""
 import sys
+import argparse
 import logging
 from pathlib import Path
 
@@ -16,18 +17,27 @@ from Infrastructure.Clients.get_clients import get_http_client
 from Markets.Baseball.strategies import (
     FavoriteLongShotStrategy,
     MeanReversionStrategy,
+    InningAdjustedEdgeStrategy,
 )
 from Markets.Baseball.config import SERIES_TICKER, MARKET_TYPE
 
 # Configure logging
+_log_dir = Path(__file__).parent.parent / 'logs'
+_log_dir.mkdir(exist_ok=True)
+_log_file = _log_dir / f"backtest_{__import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(_log_file),
+    ]
 )
 
 BASEBALL_STRATEGIES = {
     '1': ('FavoriteLongShot', FavoriteLongShotStrategy),
     '2': ('MeanReversion', MeanReversionStrategy),
+    '3': ('InningAdjustedEdge', InningAdjustedEdgeStrategy),
 }
 
 def select_strategies():
@@ -51,11 +61,28 @@ def select_strategies():
     return selected
 
 def main():
+    parser = argparse.ArgumentParser(description='Run baseball strategy backtest')
+    parser.add_argument('--strategy', type=str, default=None,
+                        help='Strategy key (1=FavoriteLongShot, 2=MeanReversion, 3=InningAdjustedEdge, all)')
+    parser.add_argument('--start', type=int, default=0, help='Start market index')
+    parser.add_argument('--end', type=int, default=None, help='End market index')
+    args = parser.parse_args()
+
     # Initialize HTTP client
     http_client = get_http_client()
 
     # Select strategies
-    strategies = select_strategies()
+    if args.strategy is not None:
+        if args.strategy.lower() == 'all':
+            strategies = list(BASEBALL_STRATEGIES.values())
+        elif args.strategy in BASEBALL_STRATEGIES:
+            strategies = [BASEBALL_STRATEGIES[args.strategy]]
+        else:
+            print(f"Unknown strategy '{args.strategy}'. Options: {list(BASEBALL_STRATEGIES.keys())} or 'all'")
+            return
+    else:
+        strategies = select_strategies()
+
     if not strategies:
         print("No strategies selected. Exiting.")
         return
@@ -73,16 +100,31 @@ def main():
     all_markets = http_client.get_markets([SERIES_TICKER], status='settled')
     filtered_markets = market_filter.filter(list(all_markets.values()))
 
-    # Filter to home team markets only (avoid duplicates)
-    home_markets = [m for m in filtered_markets if m.ticker.split('-')[-1] in m.ticker.split('-')[1]]
+    # Filter to home team markets only (avoid duplicates).
+    # Ticker format: KXMLBGAME-{DDMMMYY}{TEAMS}-{TEAM}
+    # Home team always appears first in TEAMS (e.g. MIALAD → MIA is home).
+    # A market is a home-team market when TEAM == the leading prefix of TEAMS.
+    def _is_home_market(m):
+        parts = m.ticker.split('-')
+        if len(parts) < 3:
+            return False
+        teams_str = parts[1][7:]          # strip DDMMMYY date prefix → e.g. 'MIALAD'
+        team      = parts[2]              # e.g. 'MIA'
+        return teams_str.upper().startswith(team.upper())
 
+    home_markets = [m for m in filtered_markets if _is_home_market(m)]
     logging.info(f"Found {len(home_markets)} markets to backtest")
 
-    # Ask for market range
-    start_idx = int(input(f"Start index (0-{len(home_markets)-1}): ") or "0")
-    end_idx = int(input(f"End index (default: all remaining): ") or str(len(home_markets)))
+    # Market range
+    if args.strategy is not None:
+        start_idx = args.start
+        end_idx = args.end if args.end is not None else len(home_markets)
+    else:
+        start_idx = int(input(f"Start index (0-{len(home_markets)-1}): ") or "0")
+        end_idx = int(input(f"End index (default: all remaining): ") or str(len(home_markets)))
 
     markets_to_run = home_markets[start_idx:end_idx]
+    logging.info(f"Running on markets [{start_idx}:{end_idx}] = {len(markets_to_run)} markets")
 
     # Run each strategy
     for strategy_name, strategy_class in strategies:

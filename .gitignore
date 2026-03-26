@@ -1,3 +1,7 @@
+# Logs
+*.log
+logs/
+
 # Model artifacts
 *.pkl
 
@@ -20,3 +24,8 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# Runtime state (per-session, not versioned)
+live_state/
+henry.txt
+calibration_*.png

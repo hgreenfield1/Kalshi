@@ -3,6 +3,32 @@ from Markets.Baseball.prediction import get_prediction_model_by_version
 from collections import deque
 
 
+# ---------------------------------------------------------------------------
+# Per-inning edge thresholds (based on model Brier by inning group)
+# ---------------------------------------------------------------------------
+# Innings 1-3: Brier ~0.22 — require large deviation to overcome uncertainty
+# Innings 4-6: Brier ~0.16 — moderate threshold, sweet spot for market lag
+# Innings 7+:  Brier ~0.09 — model is sharp, standard threshold
+INNING_EDGE_THRESHOLDS = {
+    'early': 10,  # innings 1-3
+    'mid':    5,  # innings 4-6
+    'late':   5,  # innings 7+
+}
+INNING_CONVICTION_THRESHOLDS = {
+    'early': 60,  # innings 1-3: need strong conviction given uncertainty
+    'mid':   55,  # innings 4-6: allow moderate conviction trades
+    'late':  55,  # innings 7+
+}
+
+
+def _inning_bucket(inning: int) -> str:
+    if inning <= 3:
+        return 'early'
+    elif inning <= 6:
+        return 'mid'
+    return 'late'
+
+
 class BaseMLBStrategy(BaseStrategy):
     """
     Shared infrastructure for MLB strategies:
@@ -220,3 +246,68 @@ class MeanReversionStrategy(BaseMLBStrategy):
         super().on_resolution(context, outcome)
         self.price_history.clear()
         self.model_history.clear()
+
+    def save_state(self) -> dict:
+        return {
+            **super().save_state(),
+            'price_history': list(self.price_history),
+            'model_history': list(self.model_history),
+        }
+
+    def restore_state(self, state: dict) -> None:
+        super().restore_state(state)
+        self.price_history = deque(state.get('price_history', []), maxlen=self.window_minutes)
+        self.model_history = deque(state.get('model_history', []), maxlen=self.window_minutes)
+
+
+class InningAdjustedEdgeStrategy(BaseMLBStrategy):
+    """
+    Trades model-vs-market deviations with edge requirements calibrated
+    to model reliability by inning group.
+
+    Rationale
+    ---------
+    The win probability model has very different accuracy by inning:
+      - Innings 1-3: Brier ~0.22 (score still 0-0, high uncertainty)
+      - Innings 4-6: Brier ~0.16 (sweet spot — model is good, market lags)
+      - Innings 7-9: Brier ~0.09 (sharp, but market is also efficient)
+
+    By requiring a larger edge early (10 pts) and standard edge mid/late (5 pts),
+    we only trade early when the market is genuinely mispriced vs the model,
+    and capture mid-game opportunities that FavoriteLongShot misses by
+    requiring 60% conviction.
+
+    Signal (both innings 4-9 at 5 pts, innings 1-3 at 10 pts):
+      long  — model >= conviction_threshold AND model - ask >= edge_threshold(inning)
+      short — model <= (100 - conviction_threshold) AND bid - model >= edge_threshold(inning)
+    """
+
+    _version = "v3.0.0"
+    _prediction_model_version = "v1.1.0"
+
+    def __init__(self):
+        super().__init__()
+        self.prediction_model = get_prediction_model_by_version(self._prediction_model_version)
+
+    def get_data_requirements(self):
+        return [DataRequirement(
+            data_key="game",
+            loader_class="Markets.Baseball.data_loader.BaseballDataLoader",
+            params={}
+        )]
+
+    def _compute_signal(self, context, model_prob: float):
+        game = context.auxiliary_data.get('game')
+        bid = context.bid_price
+        ask = context.ask_price
+
+        inning = getattr(game, 'inning', 5) if game else 5
+        bucket = _inning_bucket(inning)
+        edge_thresh = INNING_EDGE_THRESHOLDS[bucket]
+        conv_thresh = INNING_CONVICTION_THRESHOLDS[bucket]
+
+        if model_prob >= conv_thresh and model_prob - ask >= edge_thresh:
+            return 'long'
+        if model_prob <= (100 - conv_thresh) and bid - model_prob >= edge_thresh:
+            return 'short'
+        return None

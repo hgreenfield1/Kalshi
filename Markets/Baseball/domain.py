@@ -5,6 +5,8 @@ from Infrastructure.market import Market
 from Markets.Baseball.utils import mlb_teams, getProbability
 from Markets.Baseball.game_state import GameState, LEAGUE_AVG_K_PCT, LEAGUE_AVG_BB_PCT
 from Markets.Baseball.win_prob_model import get_win_prob_model, runner_index_to_flags
+from Markets.Baseball.pregame_model import estimate as estimate_pregame_prob
+from Markets.Baseball.team_stats import get_team_win_pct
 import Utils.date_helpers as date_helpers
 
 
@@ -85,6 +87,17 @@ class BaseballGame:
         self.away_sp_k_pct  = LEAGUE_AVG_K_PCT
         self.away_sp_bb_pct = LEAGUE_AVG_BB_PCT
 
+        # Batter-pitcher matchup features
+        self.is_starter = 1
+        self.current_pitcher_k_pct  = LEAGUE_AVG_K_PCT
+        self.current_pitcher_bb_pct = LEAGUE_AVG_BB_PCT
+        self.platoon_adv_batter = 0
+        self.batting_order_pos  = 5
+
+        # Team quality
+        self.home_run_diff_per_game = 0.0
+        self.away_run_diff_per_game = 0.0
+
     def update_status(self, timestamp=None, game_data_cache=None):
         if game_data_cache and timestamp and timestamp in game_data_cache:
             game_data = game_data_cache[timestamp]
@@ -111,6 +124,7 @@ class BaseballGame:
             self.runner_index = self.get_runner_state(current_play['runners'])
             self.captivating_index = current_play['about']['captivatingIndex']
             self._update_pitcher_pitch_count(game_data)
+            self._update_matchup_features(game_data, current_play)
             self.roll_status()
             self.winProbability = self.get_win_probability()
 
@@ -154,6 +168,13 @@ class BaseballGame:
             home_sp_bb_pct=self.home_sp_bb_pct,
             away_sp_k_pct=self.away_sp_k_pct,
             away_sp_bb_pct=self.away_sp_bb_pct,
+            is_starter=self.is_starter,
+            current_pitcher_k_pct=self.current_pitcher_k_pct,
+            current_pitcher_bb_pct=self.current_pitcher_bb_pct,
+            platoon_adv_batter=self.platoon_adv_batter,
+            batting_order_pos=self.batting_order_pos,
+            home_run_diff_per_game=self.home_run_diff_per_game,
+            away_run_diff_per_game=self.away_run_diff_per_game,
         )
 
     def get_win_probability(self):
@@ -238,11 +259,51 @@ class BaseballGame:
         except Exception as e:
             logging.warning(f"Could not extract pitcher pitch count: {e}")
 
-    def load_starter_stats(self, pitcher_stats: dict):
-        """Load starting pitcher quality stats from a pre-built lookup dict.
+    def _update_matchup_features(self, game_data, current_play):
+        """Update is_starter, platoon advantage, and batting order position from live data."""
+        try:
+            linescore = game_data['liveData']['linescore']
+            is_top = linescore.get('isTopInning', True)
+            pitching_side = 'home' if is_top else 'away'
+            batting_side  = 'away' if is_top else 'home'
+
+            # is_starter: check if current pitcher is listed as the starting pitcher
+            boxscore = game_data['liveData']['boxscore']['teams']
+            pitching_players = boxscore[pitching_side]['players']
+            current_pitcher_id = current_play.get('matchup', {}).get('pitcher', {}).get('id')
+            for player_data in pitching_players.values():
+                pid = player_data.get('person', {}).get('id')
+                if pid == current_pitcher_id:
+                    pos = player_data.get('position', {}).get('abbreviation', '')
+                    game_pos = player_data.get('gameStatus', {}).get('isCurrentBatter', False)
+                    # SP = starting pitcher designation
+                    all_positions = player_data.get('allPositions', [])
+                    self.is_starter = int(any(p.get('abbreviation') == 'SP' for p in all_positions))
+                    break
+
+            # Platoon advantage: batter stance vs pitcher hand
+            matchup = current_play.get('matchup', {})
+            batter_side  = matchup.get('batSide', {}).get('code', 'R')
+            pitcher_hand = matchup.get('pitchHand', {}).get('code', 'R')
+            self.platoon_adv_batter = int(batter_side != pitcher_hand or batter_side == 'S')
+
+            # Batting order position from boxscore batting order
+            batter_id = current_play.get('matchup', {}).get('batter', {}).get('id')
+            batters = boxscore[batting_side]['battingOrder']
+            if batter_id in batters:
+                self.batting_order_pos = batters.index(batter_id) + 1
+            else:
+                self.batting_order_pos = 5
+
+        except Exception as e:
+            logging.warning(f"Could not update matchup features: {e}")
+
+    def load_starter_stats(self, pitcher_stats: dict, run_diff: dict = None):
+        """Load starting pitcher quality stats and optional team run differential.
 
         Args:
             pitcher_stats: {team_abv: {'k_pct': float, 'bb_pct': float}}
+            run_diff:      {team_abv: float} — previous-season run diff per game
         """
         home = pitcher_stats.get(self.home_team_abv, {})
         self.home_sp_k_pct  = home.get('k_pct',  LEAGUE_AVG_K_PCT)
@@ -251,6 +312,10 @@ class BaseballGame:
         away = pitcher_stats.get(self.away_team_abv, {})
         self.away_sp_k_pct  = away.get('k_pct',  LEAGUE_AVG_K_PCT)
         self.away_sp_bb_pct = away.get('bb_pct', LEAGUE_AVG_BB_PCT)
+
+        if run_diff:
+            self.home_run_diff_per_game = run_diff.get(self.home_team_abv, 0.0)
+            self.away_run_diff_per_game = run_diff.get(self.away_team_abv, 0.0)
 
     def update_pregame_win_probability(self, market, http_client):
         start_unix = date_helpers.game_timestamp_to_unix(self.start_time)
@@ -261,22 +326,46 @@ class BaseballGame:
             market.ticker, market.series_ticker, start_unix, end_unix, 1
         )
 
-        if not candlestick.get('candlesticks'):
-            logging.warning(f"No pregame candlestick data available for {market.ticker}")
-            return
+        if candlestick.get('candlesticks'):
+            last = candlestick['candlesticks'][-1]
+            bid = last.get('yes_bid', {}).get('close_dollars')
+            ask = last.get('yes_ask', {}).get('close_dollars')
 
-        last = candlestick['candlesticks'][-1]
-        bid = last.get('yes_bid', {}).get('close_dollars')
-        ask = last.get('yes_ask', {}).get('close_dollars')
+            if bid is not None and ask is not None:
+                self.pregame_winProbability = (float(bid) + float(ask)) / 2 * 100
+                return
+            elif bid is not None:
+                self.pregame_winProbability = float(bid) * 100 + 2
+                return
+            elif ask is not None:
+                self.pregame_winProbability = float(ask) * 100 - 2
+                return
 
-        if bid is not None and ask is not None:
-            self.pregame_winProbability = (float(bid) + float(ask)) / 2 * 100
-        elif bid is not None:
-            self.pregame_winProbability = float(bid) * 100 + 2
-        elif ask is not None:
-            self.pregame_winProbability = float(ask) * 100 - 2
-        else:
-            logging.warning(f"Pregame win probability unavailable for {market.ticker}")
+        # Kalshi price unavailable — fall back to statistical estimate
+        logging.info(
+            f"No Kalshi pregame price for {market.ticker} — "
+            "using log5 + home field advantage estimate"
+        )
+        self.pregame_winProbability = self._estimate_pregame_statistical()
+
+    def _estimate_pregame_statistical(self) -> float:
+        """
+        Estimate pre-game win probability from previous-season win% + home field advantage.
+        Uses log5 formula. Falls back gracefully to 50.0 on any error.
+        """
+        try:
+            season = int(self.game_date[:4])
+            home_pct = get_team_win_pct(self.home_team_full, season, game_date=self.game_date)
+            away_pct = get_team_win_pct(self.away_team_full, season, game_date=self.game_date)
+            prob = estimate_pregame_prob(home_pct, away_pct)
+            logging.info(
+                f"Statistical pregame estimate: {self.home_team_abv} ({home_pct:.3f}) vs "
+                f"{self.away_team_abv} ({away_pct:.3f}) -> {prob:.1f}%"
+            )
+            return prob
+        except Exception as e:
+            logging.warning(f"Statistical pregame estimate failed: {e}")
+            return 50.0
 
     def roll_status(self):
         if self.strikes >= 3:
