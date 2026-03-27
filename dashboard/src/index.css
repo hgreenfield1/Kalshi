@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+:root {
+  --bg-base:        #0B0D0E;
+  --bg-surface:     #111315;
+  --bg-elevated:    #1A1D1F;
+  --border-subtle:  #222527;
+  --border-default: #2E3235;
+  --text-primary:   #F1F3F5;
+  --text-secondary: #8A8F97;
+  --text-muted:     #4E5560;
+  --accent:         #7C3AED;
+  --accent-light:   #A855F7;
+  --green:          #22C55E;
+  --red:            #EF4444;
+  --yellow:         #EAB308;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line { stroke: var(--border-subtle) !important; }
+.recharts-text { fill: var(--text-muted) !important; font-size: 11px !important; }
+.recharts-tooltip-wrapper { outline: none; }

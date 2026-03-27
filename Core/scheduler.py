@@ -177,7 +177,10 @@ class Scheduler:
             '%(asctime)s %(levelname)-8s %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S',
         ))
-        logging.getLogger().addHandler(handler)
+        root = logging.getLogger()
+        # Avoid adding a duplicate handler if _setup_file_logging is called twice
+        if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == str(log_path) for h in root.handlers):
+            root.addHandler(handler)
         self._logger.info(f'Log file: {log_path}')
 
     # ------------------------------------------------------------------
@@ -374,14 +377,14 @@ class Scheduler:
         """
         Resolve the Kalshi market ticker for a game.
 
-        Ticker format (2026+): KXMLBGAME-{DDMMMYY}{HHMM}{HOME}{AWAY}-{HOME}
+        Ticker format (2026+): KXMLBGAME-{YYMMMDD}{HHMM}{HOME}{AWAY}-{HOME}
         The {HHMM} is the game time, which we don't know ahead of time, so
         direct lookup is unlikely to succeed. The fallback series search is
         the primary discovery path.
 
         We try two candidate dates:
-          1. US local game date from statsapi 'game_date' (e.g. "25MAR26")
-          2. UTC date from game_datetime (e.g. "26MAR26") — for late-night games
+          1. US local game date from statsapi 'game_date' (e.g. "26MAR27")
+          2. UTC date from game_datetime (e.g. "26MAR28") — for late-night games
              that cross midnight UTC
         """
         from datetime import date as date_type
@@ -389,8 +392,8 @@ class Scheduler:
         local_date = datetime.strptime(local_game_date_str, '%Y-%m-%d').date()
         utc_date = scheduled_start_utc.date()
 
-        local_date_str = local_date.strftime('%d%b%y').upper()   # e.g. "25MAR26"
-        utc_date_str = utc_date.strftime('%d%b%y').upper()       # e.g. "26MAR26"
+        local_date_str = local_date.strftime('%y%b%d').upper()   # e.g. "26MAR27"
+        utc_date_str = utc_date.strftime('%y%b%d').upper()       # e.g. "26MAR28"
 
         # Deduplicate if both dates are the same
         date_strs = [local_date_str]
@@ -536,18 +539,18 @@ class Scheduler:
     @staticmethod
     def _pick_closest_date(tickers: list[str], today) -> str:
         """
-        Among a list of tickers, return the one whose embedded DDMMMYY date
+        Among a list of tickers, return the one whose embedded YYMMMDD date
         is closest to `today`. On equal distance, prefer the past over future.
         Unparseable tickers are ranked last.
         """
         from datetime import date as date_type
 
         def _ticker_date(ticker: str):
-            # Ticker format: SERIES-{DDMMMYY}..., so data segment starts at index 9
+            # Ticker format: SERIES-{YYMMMDD}..., so data segment starts at index 9
             try:
-                data = ticker.split('-')[1]   # e.g. "26MAR252005NYYSF"
-                date_part = data[:7]           # e.g. "26MAR25"
-                return datetime.strptime(date_part, '%d%b%y').date()
+                data = ticker.split('-')[1]   # e.g. "26MAR271635NYYSF"
+                date_part = data[:7]           # e.g. "26MAR27"
+                return datetime.strptime(date_part, '%y%b%d').date()
             except Exception:
                 return None
 
@@ -610,6 +613,9 @@ class Scheduler:
             f'game_id={entry.game_id}  game_num={entry.game_num}  '
             f'auto_execute={self.auto_execute}'
         )
+
+        # Mark as armed immediately so a second loop iteration can't re-arm
+        entry.status = 'armed'
 
         try:
             market = self.http_client.get_market_by_ticker(entry.market_ticker)

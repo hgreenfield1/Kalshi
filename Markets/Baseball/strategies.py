@@ -45,6 +45,7 @@ class BaseMLBStrategy(BaseStrategy):
         self.kelly_fraction = 0.25
         self.profit_target_pts = 35
         self.stop_loss_pts = 25
+        self._tick_history: list = []  # {ts, bid, ask, model_prob} — capped at 200
 
     def _kelly_contracts(self, model_prob: float, price: float, cash: float, side: str) -> int:
         """Fractional Kelly contract sizing.
@@ -116,6 +117,16 @@ class BaseMLBStrategy(BaseStrategy):
         cash = context.portfolio_snapshot['cash']
         orders = []
 
+        # Record tick for dashboard price chart
+        self._tick_history.append({
+            'ts': context.timestamp,
+            'bid': bid,
+            'ask': ask,
+            'model_prob': model_prob,
+        })
+        if len(self._tick_history) > 200:
+            self._tick_history = self._tick_history[-200:]
+
         # --- Early exit ---
         exit_action = self._check_early_exit(positions, bid, ask, model_prob)
         if exit_action == 'close_long' and positions > 0:
@@ -153,6 +164,23 @@ class BaseMLBStrategy(BaseStrategy):
     def on_resolution(self, context, outcome: bool):
         self._active_signal = None
         self._entry_price = None
+        # Keep _tick_history so the dashboard can render the price chart after game end
+
+    def save_state(self) -> dict:
+        state = {}
+        try:
+            state = super().save_state()
+        except Exception:
+            pass
+        state['tick_history'] = self._tick_history[-200:]
+        return state
+
+    def restore_state(self, state: dict) -> None:
+        try:
+            super().restore_state(state)
+        except Exception:
+            pass
+        self._tick_history = state.get('tick_history', [])
 
 
 class FavoriteLongShotStrategy(BaseMLBStrategy):
