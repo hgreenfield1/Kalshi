@@ -46,6 +46,7 @@ class KalshiWebSocketClient(KalshiBaseClient):
         host = self.WS_BASE_URL + self.url_suffix
         auth_headers = self.request_headers("GET", self.url_suffix)
         self.ws = await websockets.connect(host, additional_headers=auth_headers)
+        self.ob_seq_ = -1
         logging.info("Successfully connected to websocket.")
 
     async def handler(self):
