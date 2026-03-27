@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).parent.parent
 LIVE_STATE_DIR = ROOT / "live_state"
 DB_PATH = ROOT / "backtest_predictions.db"
 DIST_DIR = ROOT / "dashboard" / "dist"
