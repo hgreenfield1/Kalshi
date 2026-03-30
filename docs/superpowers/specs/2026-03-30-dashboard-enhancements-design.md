@@ -43,7 +43,7 @@ self.portfolio.trade_history[-1]['ts'] = datetime.now(timezone.utc).strftime('%Y
 **Rendering:** A custom SVG overlay layer on top of the existing Recharts chart in `dashboard/src/charts/PriceChart.tsx`.
 
 - For each trade with a `ts`, find the nearest tick by timestamp to get the x-pixel position.
-- Render an upward green triangle for `buy`, downward red triangle for `sell`, centered on that x-position at the trade's price on the y-axis.
+- Render an upward green triangle for `buy` at the ask price (`trade.price`), downward red triangle for `sell` at the bid price (`trade.price`). `portfolio.execute_buy` stores `ask_price` as `price` and `execute_sell` stores `bid_price` as `price`, so `trade.price` is correct for both.
 - Trades without `ts` (historical files before the fix) are silently skipped.
 - Add buy/sell arrow entries to the chart legend.
 
@@ -63,9 +63,9 @@ self.portfolio.trade_history[-1]['ts'] = datetime.now(timezone.utc).strftime('%Y
 
 ### New API Endpoint
 
-`GET /api/live/results`
+`GET /api/live/results?from=YYYY-MM-DD&to=YYYY-MM-DD&team=XXX&pnl_min=N&pnl_max=N&trades_min=N&trades_max=N&outcome=win|loss|all`
 
-Scans all `live_state/scheduler_*.json` files across all dates. For each game entry, loads the corresponding `game_TICKER.json` to get `pnl` (`cash - 100`) and `trade_count`. Returns a flat JSON array:
+All parameters are optional. The API scans only `scheduler_*.json` files within the requested date range, applies filters server-side, and loads `game_TICKER.json` only for matching entries. Returns a flat JSON array:
 
 ```json
 [
@@ -83,7 +83,7 @@ Scans all `live_state/scheduler_*.json` files across all dates. For each game en
 ]
 ```
 
-Games with status `no_market` or `skipped` are included (pnl and trade_count will be 0 or null). The frontend handles all filtering.
+Games with status `no_market` or `skipped` are included unless filtered out by outcome or trade count. Team filter matches case-insensitively against `home_team` or `away_team`. The frontend does no additional filtering — results are exactly what the API returns.
 
 ### ResultsPage Redesign (`dashboard/src/pages/ResultsPage.tsx`)
 
@@ -100,9 +100,10 @@ Games with status `no_market` or `skipped` are included (pnl and trade_count wil
 | P&L min → max | Number inputs | Filter by pnl range (inclusive) |
 | Trades min → max | Number inputs | Filter by trade_count range (inclusive) |
 | Win / Loss / All | Toggle pills | Win = pnl > 0; Loss = pnl ≤ 0; All = no filter |
-| Reset | Button | Clears all filters |
+| Apply | Button | Sends current filter values to API and fetches results |
+| Reset | Button | Clears all filters and re-fetches with no filters |
 
-All filtering is client-side (the full dataset is fetched once on mount).
+Filtering is server-side. Results are only fetched when the user clicks **Apply** (or **Reset**). Summary stats update to reflect the returned result set.
 
 **Game table** (below filter bar): Sortable columns — Date, Matchup (Away @ Home), Status pill, Pregame %, Trades, P&L. Default sort: Date descending. Clicking a row navigates to `GameDetailPage` for that ticker.
 
@@ -126,5 +127,5 @@ All filtering is client-side (the full dataset is fetched once on mount).
 
 - No changes to the backtest filter page (strategy/model filters stay as-is).
 - No changes to live game grid (`LiveGamesPage`).
-- No server-side filtering for results (dataset is small enough for client-side).
-- No pagination (fetch all, scroll).
+- No pagination on results table (scroll through filtered results).
+- No real-time auto-refresh of results page (fetch on Apply only).
