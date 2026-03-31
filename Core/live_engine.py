@@ -205,6 +205,7 @@ class LiveGameEngine:
                 f'@ {order.limit_price:.1f}c'
             )
             self.executor.execute(order, self.market.ticker, self.portfolio, bid, ask)
+            self.portfolio.trade_history[-1]['ts'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
         # 7. Persist state after any trade
         if orders:
