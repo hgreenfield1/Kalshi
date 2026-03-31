@@ -11,6 +11,8 @@ export default function GameDetailPage() {
   const { data: remote, loading, error } = useGameState(ticker ?? '')
   const liveUpdate = useStore(s => ticker ? s.gameUpdates[ticker] : undefined)
 
+  const [tradesCollapsed, setTradesCollapsed] = useState(false)
+
   if (loading) return <div style={{ color: 'var(--text-muted)', padding: 40 }}>Loading...</div>
   if (error || !remote) return (
     <div style={{ color: 'var(--red)', padding: 40 }}>
@@ -25,7 +27,6 @@ export default function GameDetailPage() {
 
   const pnl = portfolio.cash - 100
   const trades = portfolio.trade_history ?? []
-  const [tradesCollapsed, setTradesCollapsed] = useState(false)
 
   const tradeColumns: Column<typeof trades[0]>[] = [
     {

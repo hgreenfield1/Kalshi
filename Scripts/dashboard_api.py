@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 # ---------------------------------------------------------------------------
@@ -657,7 +657,16 @@ def backtest_game_detail(game_id: str):
 # ---------------------------------------------------------------------------
 
 if DIST_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(DIST_DIR), html=True), name="static")
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        # Serve existing files (favicon, icons, etc.) directly
+        candidate = DIST_DIR / full_path
+        if candidate.exists() and candidate.is_file():
+            return FileResponse(str(candidate))
+        # All other paths → SPA index
+        return FileResponse(str(DIST_DIR / "index.html"))
 else:
     @app.get("/")
     def root():
