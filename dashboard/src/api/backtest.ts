@@ -88,3 +88,19 @@ export function useBacktestDistribution(strategy?: string, model?: string) {
   if (model) p.set('model', model)
   return useFetch<{ pnls: number[] }>(`/api/backtest/distribution?${p}`)
 }
+
+export interface PredictionRow {
+  id: number
+  timestamp: string
+  predicted_prob: number
+  bid_price: number
+  ask_price: number
+  cash: number
+  positions: number
+  signal: number | null
+}
+
+export function useBacktestGameDetail(gameId: string | null) {
+  const url = gameId ? `/api/backtest/game/${encodeURIComponent(gameId)}` : ''
+  return useFetch<{ rows: PredictionRow[] }>(url)
+}

@@ -5,11 +5,13 @@ import {
   useBacktestGames,
   useBacktestCumulativePnL,
   useBacktestDistribution,
+  useBacktestGameDetail,
   type BacktestGame,
 } from '../api/backtest'
 import StatCard from '../components/StatCard'
 import DataTable, { type Column } from '../components/DataTable'
 import CumulativePnLChart from '../charts/CumulativePnLChart'
+import PriceChart from '../charts/PriceChart'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 function FilterBar({
@@ -107,16 +109,36 @@ function DistributionChart({ pnls, height = 200 }: { pnls: number[]; height?: nu
 export default function BacktestPage() {
   const [strategy, setStrategy] = useState('')
   const [model, setModel] = useState('')
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
+  const [tradesCollapsed, setTradesCollapsed] = useState(false)
 
   const { data: filters } = useBacktestFilters()
   const { data: metrics, loading: mLoading } = useBacktestMetrics(strategy, model)
   const { data: gamesData, loading: gLoading } = useBacktestGames(strategy, model, undefined, undefined)
   const { data: pnlData } = useBacktestCumulativePnL(strategy, model)
   const { data: distData } = useBacktestDistribution(strategy, model)
+  const { data: gameDetail, loading: detailLoading } = useBacktestGameDetail(selectedGameId)
 
   const games = gamesData?.games ?? []
   const pnlSeries = pnlData?.series ?? []
   const pnls = distData?.pnls ?? []
+
+  const rows = gameDetail?.rows ?? []
+  const ticks = rows.filter((r: any) => r.timestamp !== 'FINAL').map((r: any) => ({
+    ts: r.timestamp,
+    bid: r.bid_price,
+    ask: r.ask_price,
+    model_prob: r.predicted_prob * 100,
+  }))
+  const backtestTrades = rows
+    .filter((r: any) => r.timestamp !== 'FINAL' && r.signal != null && r.signal !== 0)
+    .map((r: any) => ({
+      action: r.signal > 0 ? 'buy' : 'sell',
+      price: r.signal > 0 ? r.ask_price : r.bid_price,
+      quantity: 1,
+      ts: r.timestamp,
+      positions: r.positions,
+    }))
 
   const gameColumns: Column<BacktestGame>[] = [
     { key: 'game_id', label: 'Game ID' },
@@ -230,9 +252,117 @@ export default function BacktestPage() {
             columns={gameColumns}
             rows={games}
             rowKey={row => row.game_id}
+            onRowClick={row => {
+              setSelectedGameId(prev => prev === row.game_id ? null : row.game_id)
+              setTradesCollapsed(false)
+            }}
           />
         )}
       </div>
+
+      {/* Game Detail Panel */}
+      {selectedGameId && (
+        <div style={{
+          marginTop: 24,
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 8,
+          padding: '16px 20px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>
+              {selectedGameId}
+            </div>
+            <button
+              onClick={() => setSelectedGameId(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                fontSize: 18,
+                lineHeight: 1,
+                padding: '0 4px',
+              }}
+            >
+              ×
+            </button>
+          </div>
+          {detailLoading ? (
+            <div style={{ color: 'var(--text-muted)', padding: 20, textAlign: 'center' }}>Loading...</div>
+          ) : ticks.length > 0 ? (
+            <>
+              <PriceChart ticks={ticks} trades={backtestTrades} />
+              <div style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 8,
+                overflow: 'hidden',
+                marginTop: 16,
+              }}>
+                <div
+                  onClick={() => setTradesCollapsed(c => !c)}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px 16px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>
+                    Trade History{' '}
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({backtestTrades.length})</span>
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {tradesCollapsed ? '▼ expand' : '▲ collapse'}
+                  </span>
+                </div>
+                {!tradesCollapsed && (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-elevated)' }}>
+                        <th style={{ textAlign: 'left', padding: '6px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Time</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Action</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 500 }}>Price</th>
+                        <th style={{ textAlign: 'right', padding: '6px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Position</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {backtestTrades.map((t: any, i: number) => (
+                        <tr key={i} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '6px 12px', color: 'var(--text-muted)' }}>
+                            {new Date(t.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <span style={{
+                              fontWeight: 600,
+                              color: t.action === 'buy' ? 'var(--green)' : 'var(--red)',
+                              textTransform: 'uppercase',
+                              fontSize: 11,
+                            }}>
+                              {t.action}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-primary)' }}>
+                            {t.price.toFixed(1)}¢
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '6px 12px', color: 'var(--text-secondary)' }}>
+                            {t.positions}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={{ color: 'var(--text-muted)', padding: 20, textAlign: 'center' }}>No prediction data for this game.</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
