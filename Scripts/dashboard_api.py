@@ -344,7 +344,7 @@ def get_live_results(
                 "trade_count": trade_count,
             })
 
-    results.sort(key=lambda x: x["date"], reverse=True)
+    results.sort(key=lambda x: (x["date"], x["ticker"]), reverse=True)
     return results
 
 
