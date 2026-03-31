@@ -114,13 +114,13 @@ export default function ResultsPage() {
       {/* Summary stats — shown after first fetch */}
       {fetched && (
         <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-          {[
+          {((): { label: string; value: string | number; color?: string }[] => [
             { label: 'Games',     value: games.length },
             { label: 'Done',      value: doneGames.length },
             { label: 'Total P&L', value: `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`, color: totalPnl >= 0 ? 'var(--green)' : 'var(--red)' },
             { label: 'Win Rate',  value: `${(winRate * 100).toFixed(0)}%` },
             { label: 'Avg P&L',   value: `${avgPnl >= 0 ? '+' : ''}$${avgPnl.toFixed(2)}`, color: avgPnl >= 0 ? 'var(--green)' : 'var(--red)' },
-          ].map(m => (
+          ])().map(m => (
             <div key={m.label} style={{
               background: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
@@ -129,7 +129,7 @@ export default function ResultsPage() {
               minWidth: 90,
             }}>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{m.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: (m as any).color ?? 'var(--text-primary)' }}>{m.value}</div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: m.color ?? 'var(--text-primary)' }}>{m.value}</div>
             </div>
           ))}
         </div>
@@ -287,7 +287,7 @@ export default function ResultsPage() {
               <tbody>
                 {sorted.map((g, i) => (
                   <tr
-                    key={i}
+                    key={g.ticker || i}
                     onClick={() => g.ticker && navigate(`/live/${g.ticker}`)}
                     style={{ borderTop: '1px solid var(--border-subtle)', cursor: g.ticker ? 'pointer' : 'default' }}
                     onMouseEnter={e => { if (g.ticker) (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)' }}
@@ -300,7 +300,7 @@ export default function ResultsPage() {
                       {g.away_team} <span style={{ color: 'var(--text-muted)' }}>@</span> <strong>{g.home_team}</strong>
                     </td>
                     <td style={{ padding: '8px 12px' }}>
-                      <StatusPill status={g.status as any} />
+                      <StatusPill status={g.status} />
                     </td>
                     <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-muted)' }}>
                       {g.pregame_win_probability != null ? `${g.pregame_win_probability.toFixed(1)}%` : '—'}

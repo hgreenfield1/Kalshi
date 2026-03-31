@@ -109,12 +109,14 @@ export function useHistorical() {
   return useFetch<{ dates: HistoricalDate[] }>('/api/live/historical', 60000)
 }
 
+export type GameStatus = 'running' | 'pending' | 'armed' | 'done' | 'no_market' | 'skipped' | 'live' | 'paper'
+
 export interface ResultGame {
   date: string
   ticker: string
   home_team: string
   away_team: string
-  status: string
+  status: GameStatus
   pregame_win_probability: number | null
   pnl: number
   trade_count: number
