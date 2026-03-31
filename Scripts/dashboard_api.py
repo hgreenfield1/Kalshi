@@ -252,6 +252,103 @@ def get_historical_date(date_str: str):
 
 
 # ---------------------------------------------------------------------------
+# Live — Results (flat filtered list)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/live/results")
+def get_live_results(
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None),
+    team: Optional[str] = Query(None),
+    pnl_min: Optional[float] = Query(None),
+    pnl_max: Optional[float] = Query(None),
+    trades_min: Optional[int] = Query(None),
+    trades_max: Optional[int] = Query(None),
+    outcome: Optional[str] = Query(None),
+) -> List[Dict[str, Any]]:
+    """Flat list of all historical live games with server-side filtering."""
+    results: List[Dict[str, Any]] = []
+
+    for sched_path in sorted(LIVE_STATE_DIR.glob("scheduler_*.json")):
+        date_str = sched_path.stem.replace("scheduler_", "")
+        try:
+            game_date = datetime.strptime(date_str, "%Y%m%d").date()
+        except ValueError:
+            continue
+
+        # Date range — skip entire file before reading entries
+        if from_date:
+            try:
+                if game_date < datetime.strptime(from_date, "%Y-%m-%d").date():
+                    continue
+            except ValueError:
+                pass
+        if to_date:
+            try:
+                if game_date > datetime.strptime(to_date, "%Y-%m-%d").date():
+                    continue
+            except ValueError:
+                pass
+
+        sched = _read_json(sched_path)
+        if not sched:
+            continue
+
+        for entry in sched.get("entries", []):
+            ticker    = entry.get("market_ticker", "")
+            status    = entry.get("status", "")
+            home_team = entry.get("home_team", "")
+            away_team = entry.get("away_team", "")
+
+            # Team filter before loading game file
+            if team and team.upper() not in (home_team.upper(), away_team.upper()):
+                continue
+
+            game_data = _read_json(_game_path(ticker)) if ticker else None
+            pnl: float = 0.0
+            trade_count: int = 0
+            pregame_win_probability: Optional[float] = None
+
+            if game_data:
+                portfolio = game_data.get("portfolio", {})
+                pnl = _calc_pnl(portfolio)
+                trade_count = len(portfolio.get("trade_history", []))
+                pregame_win_probability = game_data.get("pregame_win_probability")
+
+            # P&L filters
+            if pnl_min is not None and pnl < pnl_min:
+                continue
+            if pnl_max is not None and pnl > pnl_max:
+                continue
+
+            # Trade count filters
+            if trades_min is not None and trade_count < trades_min:
+                continue
+            if trades_max is not None and trade_count > trades_max:
+                continue
+
+            # Outcome filter — only applies to done games
+            if outcome == "win" and not (status == "done" and pnl > 0):
+                continue
+            if outcome == "loss" and not (status == "done" and pnl <= 0):
+                continue
+
+            results.append({
+                "date": game_date.isoformat(),
+                "ticker": ticker,
+                "home_team": home_team,
+                "away_team": away_team,
+                "status": status,
+                "pregame_win_probability": pregame_win_probability,
+                "pnl": round(pnl, 2),
+                "trade_count": trade_count,
+            })
+
+    results.sort(key=lambda x: x["date"], reverse=True)
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Live — SSE Stream
 # ---------------------------------------------------------------------------
 
