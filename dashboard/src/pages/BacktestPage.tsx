@@ -7,6 +7,7 @@ import {
   useBacktestDistribution,
   useBacktestGameDetail,
   type BacktestGame,
+  type PredictionRow,
 } from '../api/backtest'
 import StatCard from '../components/StatCard'
 import DataTable, { type Column } from '../components/DataTable'
@@ -123,18 +124,18 @@ export default function BacktestPage() {
   const pnlSeries = pnlData?.series ?? []
   const pnls = distData?.pnls ?? []
 
-  const rows = gameDetail?.rows ?? []
-  const ticks = rows.filter((r: any) => r.timestamp !== 'FINAL').map((r: any) => ({
+  const rows = gameDetail ?? []
+  const ticks = rows.filter((r: PredictionRow) => r.timestamp !== 'FINAL').map((r: PredictionRow) => ({
     ts: r.timestamp,
     bid: r.bid_price,
     ask: r.ask_price,
     model_prob: r.predicted_prob * 100,
   }))
   const backtestTrades = rows
-    .filter((r: any) => r.timestamp !== 'FINAL' && r.signal != null && r.signal !== 0)
-    .map((r: any) => ({
-      action: r.signal > 0 ? 'buy' : 'sell',
-      price: r.signal > 0 ? r.ask_price : r.bid_price,
+    .filter((r: PredictionRow) => r.timestamp !== 'FINAL' && r.signal != null && r.signal !== 0)
+    .map((r: PredictionRow) => ({
+      action: r.signal! > 0 ? 'buy' : 'sell',
+      price: r.signal! > 0 ? r.ask_price : r.bid_price,
       quantity: 1,
       ts: r.timestamp,
       positions: r.positions,
@@ -294,7 +295,7 @@ export default function BacktestPage() {
             <>
               <PriceChart ticks={ticks} trades={backtestTrades} />
               <div style={{
-                background: 'var(--bg-surface)',
+                background: 'var(--bg-elevated)',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: 8,
                 overflow: 'hidden',
@@ -331,7 +332,7 @@ export default function BacktestPage() {
                     </thead>
                     <tbody>
                       {backtestTrades.map((t: any, i: number) => (
-                        <tr key={i} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                        <tr key={`${t.ts}-${i}`} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                           <td style={{ padding: '6px 12px', color: 'var(--text-muted)' }}>
                             {new Date(t.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </td>

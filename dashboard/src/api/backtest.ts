@@ -101,6 +101,20 @@ export interface PredictionRow {
 }
 
 export function useBacktestGameDetail(gameId: string | null) {
-  const url = gameId ? `/api/backtest/game/${encodeURIComponent(gameId)}` : ''
-  return useFetch<{ rows: PredictionRow[] }>(url)
+  const [data, setData] = useState<PredictionRow[] | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!gameId) { setData(null); setLoading(false); return }
+    let mounted = true
+    setData(null)
+    setLoading(true)
+    fetch(`/api/backtest/game/${encodeURIComponent(gameId)}`)
+      .then(r => r.json())
+      .then((d: any) => { if (mounted) { setData(d?.rows ?? d ?? []); setLoading(false) } })
+      .catch(() => { if (mounted) setLoading(false) })
+    return () => { mounted = false }
+  }, [gameId])
+
+  return { data, loading }
 }
