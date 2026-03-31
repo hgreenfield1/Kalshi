@@ -45,6 +45,7 @@ export interface GameState {
       quantity: number
       positions: number
       cash: number
+      ts?: string
     }>
   }
   strategy_state: {
@@ -106,4 +107,41 @@ export interface HistoricalDate {
 
 export function useHistorical() {
   return useFetch<{ dates: HistoricalDate[] }>('/api/live/historical', 60000)
+}
+
+export interface ResultGame {
+  date: string
+  ticker: string
+  home_team: string
+  away_team: string
+  status: string
+  pregame_win_probability: number | null
+  pnl: number
+  trade_count: number
+}
+
+export interface ResultsFilter {
+  from?: string
+  to?: string
+  team?: string
+  pnl_min?: number
+  pnl_max?: number
+  trades_min?: number
+  trades_max?: number
+  outcome?: 'win' | 'loss' | 'all'
+}
+
+export async function fetchResults(filters: ResultsFilter): Promise<ResultGame[]> {
+  const params = new URLSearchParams()
+  if (filters.from)              params.set('from', filters.from)
+  if (filters.to)                params.set('to', filters.to)
+  if (filters.team)              params.set('team', filters.team)
+  if (filters.pnl_min != null)   params.set('pnl_min', String(filters.pnl_min))
+  if (filters.pnl_max != null)   params.set('pnl_max', String(filters.pnl_max))
+  if (filters.trades_min != null) params.set('trades_min', String(filters.trades_min))
+  if (filters.trades_max != null) params.set('trades_max', String(filters.trades_max))
+  if (filters.outcome && filters.outcome !== 'all') params.set('outcome', filters.outcome)
+  const res = await fetch(`/api/live/results?${params}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
 }
