@@ -148,9 +148,9 @@ export default function PriceChart({ ticks, trades = [], height = 280 }: Props) 
             x={m.label!}
             y={m.price}
             r={0}
-            shape={m.action === 'buy'
-              ? (props: any) => <BuyArrow cx={props.cx} cy={props.cy} />
-              : (props: any) => <SellArrow cx={props.cx} cy={props.cy} />
+            shape={m.action.toLowerCase() === 'buy'
+              ? (props: { cx?: number; cy?: number }) => <BuyArrow cx={props.cx} cy={props.cy} />
+              : (props: { cx?: number; cy?: number }) => <SellArrow cx={props.cx} cy={props.cy} />
             }
           />
         ))}
