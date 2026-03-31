@@ -21,12 +21,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from Core.market_discovery import MarketDiscovery
 from Infrastructure.market import Market
 from Infrastructure.state import TradingState
 from Infrastructure.Clients.http_client import KalshiHttpClient
 from Infrastructure.Clients.get_clients import get_websocket_client
 from Markets.Baseball.utils import mlb_teams
-from Markets.Baseball.config import SERIES_TICKER
 
 
 # ---------------------------------------------------------------------------
@@ -142,11 +142,13 @@ class Scheduler:
         self,
         http_client: KalshiHttpClient,
         strategy_class,
+        market_discovery: MarketDiscovery,
         auto_execute: bool = False,
         daily_loss_limit: float = 50.0,
     ):
         self.http_client = http_client
         self.strategy_class = strategy_class
+        self.market_discovery = market_discovery
         self.auto_execute = auto_execute
         self.daily_loss_limit = daily_loss_limit
 
@@ -343,8 +345,9 @@ class Scheduler:
             game_num = game.get('game_num', 1)
             arm_time = scheduled_start - timedelta(minutes=ARM_OFFSET_MINUTES)
 
-            market_ticker = self._discover_kalshi_ticker(
-                home_abv, away_abv, local_game_date_str, scheduled_start, game_num
+            market_ticker = self.market_discovery.discover(
+                home_abv, away_abv, local_game_date_str, scheduled_start, game_num,
+                self.http_client,
             )
 
             return GameScheduleEntry(
@@ -361,208 +364,6 @@ class Scheduler:
         except Exception:
             self._logger.exception(f'Failed to parse schedule entry: {game}')
             return None
-
-    # ------------------------------------------------------------------
-    # Kalshi market discovery
-    # ------------------------------------------------------------------
-
-    def _discover_kalshi_ticker(
-        self,
-        home_abv: str,
-        away_abv: str,
-        local_game_date_str: str,
-        scheduled_start_utc: datetime,
-        game_num: int,
-    ) -> Optional[str]:
-        """
-        Resolve the Kalshi market ticker for a game.
-
-        Ticker format (2026+): KXMLBGAME-{YYMMMDD}{HHMM}{HOME}{AWAY}-{HOME}
-        The {HHMM} is the game time, which we don't know ahead of time, so
-        direct lookup is unlikely to succeed. The fallback series search is
-        the primary discovery path.
-
-        We try two candidate dates:
-          1. US local game date from statsapi 'game_date' (e.g. "26MAR27")
-          2. UTC date from game_datetime (e.g. "26MAR28") — for late-night games
-             that cross midnight UTC
-        """
-        from datetime import date as date_type
-
-        local_date = datetime.strptime(local_game_date_str, '%Y-%m-%d').date()
-        utc_date = scheduled_start_utc.date()
-
-        local_date_str = local_date.strftime('%y%b%d').upper()   # e.g. "26MAR27"
-        utc_date_str = utc_date.strftime('%y%b%d').upper()       # e.g. "26MAR28"
-
-        # Deduplicate if both dates are the same
-        date_strs = [local_date_str]
-        if utc_date_str != local_date_str:
-            date_strs.append(utc_date_str)
-
-        teams = f'{home_abv}{away_abv}'
-        g2_suffixes = ['G2', '2'] if game_num == 2 else ['']
-
-        # Direct lookup (works for old-format tickers without time component)
-        for date_str in date_strs:
-            for suffix in g2_suffixes:
-                candidate = f'{SERIES_TICKER}-{date_str}{teams}{suffix}-{home_abv}'
-                try:
-                    market = self.http_client.get_market_by_ticker(candidate)
-                    if market:
-                        self._logger.debug(f'Direct lookup succeeded: {candidate}')
-                        return candidate
-                except Exception:
-                    pass
-
-        # Fallback: search open markets (handles the {HHMM} time component in new tickers)
-        self._logger.debug(
-            f'Direct lookup failed for {home_abv} vs {away_abv}. '
-            f'Trying series search (dates tried: {date_strs}).'
-        )
-        return self._search_open_markets(home_abv, away_abv, date_strs, game_num)
-
-    def _search_open_markets(
-        self,
-        home_abv: str,
-        away_abv: str,
-        date_strs: list[str],
-        game_num: int,
-    ) -> Optional[str]:
-        """
-        Search all open KXMLBGAME markets and match by date + team abbreviations.
-
-        For each matching ticker we check that:
-          - One of the candidate date strings is present
-          - Both team abbreviations are present in the ticker
-          - The ticker ends with -{home_abv} (ensures we get the home-team contract
-            and not the away-team variant of the same game)
-          - Doubleheader game 2 tickers contain 'G2' or end with a digit before the home suffix
-        """
-        try:
-            markets = self.http_client.get_markets(SERIES_TICKER, status='open')
-        except Exception:
-            self._logger.exception('get_markets() failed during fallback search')
-            return None
-
-        matches = []
-        for ticker in markets:
-            upper = ticker.upper()
-            if not any(d in upper for d in date_strs):
-                continue
-            if home_abv not in upper or away_abv not in upper:
-                continue
-            if not ticker.endswith(f'-{home_abv}'):
-                continue
-            is_dh_g2 = 'G2' in upper
-            if game_num == 2 and not is_dh_g2:
-                continue
-            if game_num != 2 and is_dh_g2:
-                continue
-            matches.append(ticker)
-
-        if len(matches) == 1:
-            self._logger.info(
-                f'Fallback search matched: {matches[0]} '
-                f'(home={home_abv} away={away_abv} dates={date_strs})'
-            )
-            return matches[0]
-
-        if len(matches) > 1:
-            self._logger.warning(
-                f'Ambiguous match for {home_abv} vs {away_abv}: {matches}. '
-                f'Using first result.'
-            )
-            return matches[0]
-
-        # Date-filtered search found nothing. Try team-name-only search as last resort.
-        # This handles cases where Kalshi's ticker date encoding doesn't match our expectation
-        # (e.g. a 2025-dated market reused for a 2026 game, or date encoding edge cases).
-        return self._search_open_markets_by_teams(home_abv, away_abv, game_num, markets)
-
-    def _search_open_markets_by_teams(
-        self,
-        home_abv: str,
-        away_abv: str,
-        game_num: int,
-        markets: dict,
-    ) -> Optional[str]:
-        """
-        Last-resort search: match only on team abbreviations, ignoring the date.
-
-        Used when Kalshi's ticker date doesn't match our expected date strings
-        (e.g. a 2025-dated market carried over for a 2026 game, or other encoding
-        edge cases). Warns loudly since this match is date-ambiguous.
-        """
-        matches = []
-        for ticker in markets:
-            upper = ticker.upper()
-            if home_abv not in upper or away_abv not in upper:
-                continue
-            if not ticker.endswith(f'-{home_abv}'):
-                continue
-            is_dh_g2 = 'G2' in upper
-            if game_num == 2 and not is_dh_g2:
-                continue
-            if game_num != 2 and is_dh_g2:
-                continue
-            matches.append(ticker)
-
-        if not matches:
-            self._logger.warning(
-                f'No open Kalshi market found for {home_abv} vs {away_abv} '
-                f'after exhausting all search strategies.'
-            )
-            return None
-
-        # When multiple markets match, prefer the one whose ticker date is
-        # closest to today. Ties are broken by preferring the past (an open
-        # market from a prior game date is more likely to be the active one
-        # than a future-scheduled market created in advance).
-        today = datetime.now(timezone.utc).date()
-        best = self._pick_closest_date(matches, today)
-
-        if len(matches) > 1:
-            self._logger.warning(
-                f'Date-agnostic fallback: {len(matches)} matches for '
-                f'{home_abv} vs {away_abv}: {matches}. '
-                f'Selected closest to today: {best}'
-            )
-        else:
-            self._logger.warning(
-                f'Date-agnostic fallback matched: {best} '
-                f'(home={home_abv} away={away_abv}). '
-                f'Ticker date may not match today — verify if unexpected.'
-            )
-        return best
-
-    @staticmethod
-    def _pick_closest_date(tickers: list[str], today) -> str:
-        """
-        Among a list of tickers, return the one whose embedded YYMMMDD date
-        is closest to `today`. On equal distance, prefer the past over future.
-        Unparseable tickers are ranked last.
-        """
-        from datetime import date as date_type
-
-        def _ticker_date(ticker: str):
-            # Ticker format: SERIES-{YYMMMDD}..., so data segment starts at index 9
-            try:
-                data = ticker.split('-')[1]   # e.g. "26MAR271635NYYSF"
-                date_part = data[:7]           # e.g. "26MAR27"
-                return datetime.strptime(date_part, '%y%b%d').date()
-            except Exception:
-                return None
-
-        def _sort_key(ticker: str):
-            d = _ticker_date(ticker)
-            if d is None:
-                return (999999, 1)           # unparseable — rank last
-            delta = (d - today).days
-            # (abs_distance, 1 if future else 0) — prefer past on tie
-            return (abs(delta), 1 if delta > 0 else 0)
-
-        return min(tickers, key=_sort_key)
 
     # ------------------------------------------------------------------
     # Game lifecycle
@@ -595,10 +396,12 @@ class Scheduler:
     def _arm_game(self, entry: GameScheduleEntry) -> None:
         """
         Instantiate a LiveGameEngine and start it 5 minutes before first pitch.
-        Fetches the live Market object and constructs a fresh BaseballGame.
+        Fetches the live Market object and constructs a fresh BaseballGame wrapped
+        in a BaseballDomainAdapter.
         """
         from Core.live_engine import LiveGameEngine
         from Markets.Baseball.domain import BaseballGame
+        from Markets.Baseball.adapter import BaseballDomainAdapter
         from Infrastructure.state import Orderbook
 
         log = _GameLogAdapter(self._logger, {'ticker': entry.market_ticker})
@@ -632,6 +435,7 @@ class Scheduler:
             start_time=entry.scheduled_start.strftime('%Y-%m-%dT%H:%M:%SZ'),
             status='Pre-Game',
         )
+        adapter = BaseballDomainAdapter(game)
 
         # Ensure the ticker is registered in the shared TradingState
         if self._trading_state and entry.market_ticker not in self._trading_state.orderbooks:
@@ -639,7 +443,7 @@ class Scheduler:
 
         engine = LiveGameEngine(
             market=market,
-            game=game,
+            adapter=adapter,
             strategy=self.strategy_class(),
             http_client=self.http_client,
             trading_state=self._trading_state,

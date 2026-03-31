@@ -88,7 +88,7 @@ class KalshiHttpClient(KalshiBaseClient):
     async def get_orders(self, market_ticker: str):
         res, code = await self.get("/portfolio/orders/?ticker=" + market_ticker + "&status=resting")
         return res, code
-    
+
     async def cancel_limit_order(self, order_id):
         try:
             resolve, code = await self.delete(f"/portfolio/orders/{order_id}")
@@ -96,6 +96,26 @@ class KalshiHttpClient(KalshiBaseClient):
         except Exception as e:
             print("Error canceling order:", e)
             return False # failed cancel, don't handle error here
+
+    def get_open_orders(self, ticker: Optional[str] = None) -> list:
+        """Return all resting (unfilled) orders, optionally filtered by ticker."""
+        params: Dict[str, Any] = {'status': 'resting', 'limit': 100}
+        if ticker:
+            params['ticker'] = ticker
+        try:
+            resp = self.get(self.portfolio_url + '/orders', params)
+            return resp.get('orders', [])
+        except Exception:
+            return []
+
+    def cancel_order(self, order_id: str) -> bool:
+        """Cancel a single resting order by ID. Returns True on success."""
+        try:
+            self.delete(f'{self.portfolio_url}/orders/{order_id}')
+            return True
+        except Exception as e:
+            logging.getLogger(__name__).warning('Failed to cancel order %s: %s', order_id, e)
+            return False
         
     def get_trades(
         self,

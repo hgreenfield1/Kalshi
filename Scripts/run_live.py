@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from Infrastructure.Clients.get_clients import get_http_client
 from Markets.Baseball.strategies import MeanReversionStrategy
+from Markets.Baseball.discovery import BaseballMarketDiscovery
 from Core.scheduler import Scheduler
 
 # ---------------------------------------------------------------------------
@@ -50,6 +51,7 @@ if __name__ == '__main__':
     scheduler = Scheduler(
         http_client=http_client,
         strategy_class=MeanReversionStrategy,
+        market_discovery=BaseballMarketDiscovery(),
         auto_execute=auto_execute,
         daily_loss_limit=daily_loss_limit,
     )
