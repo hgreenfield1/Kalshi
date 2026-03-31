@@ -267,8 +267,12 @@ export default function ResultsPage() {
                   <th onClick={() => handleSort('date')} style={thStyle('date')}>
                     Date{sortIndicator('date')}
                   </th>
-                  <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500, fontSize: 11 }}>Matchup</th>
-                  <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500, fontSize: 11 }}>Status</th>
+                  <th onClick={() => handleSort('home_team')} style={thStyle('home_team')}>
+                    Matchup{sortIndicator('home_team')}
+                  </th>
+                  <th onClick={() => handleSort('status')} style={thStyle('status')}>
+                    Status{sortIndicator('status')}
+                  </th>
                   <th onClick={() => handleSort('pregame_win_probability')} style={thStyle('pregame_win_probability', 'right')}>
                     Pre-game{sortIndicator('pregame_win_probability')}
                   </th>
@@ -299,7 +303,7 @@ export default function ResultsPage() {
                       <StatusPill status={g.status as any} />
                     </td>
                     <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-muted)' }}>
-                      {g.pregame_win_probability != null ? `${g.pregame_win_probability.toFixed(1)}¢` : '—'}
+                      {g.pregame_win_probability != null ? `${g.pregame_win_probability.toFixed(1)}%` : '—'}
                     </td>
                     <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-secondary)' }}>
                       {g.trade_count}
