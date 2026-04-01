@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useGameState } from '../api/live'
 import { useStore } from '../store/liveStore'
@@ -9,6 +10,8 @@ export default function GameDetailPage() {
   const navigate = useNavigate()
   const { data: remote, loading, error } = useGameState(ticker ?? '')
   const liveUpdate = useStore(s => ticker ? s.gameUpdates[ticker] : undefined)
+
+  const [tradesCollapsed, setTradesCollapsed] = useState(false)
 
   if (loading) return <div style={{ color: 'var(--text-muted)', padding: 40 }}>Loading...</div>
   if (error || !remote) return (
@@ -26,6 +29,13 @@ export default function GameDetailPage() {
   const trades = portfolio.trade_history ?? []
 
   const tradeColumns: Column<typeof trades[0]>[] = [
+    {
+      key: 'ts' as any,
+      label: 'Time',
+      render: row => (row as any).ts
+        ? new Date((row as any).ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '—',
+    },
     {
       key: 'action',
       label: 'Action',
@@ -157,16 +167,39 @@ export default function GameDetailPage() {
         </div>
       )}
 
-      {/* Trade table */}
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 12 }}>
-          Trade History ({trades.length})
+      {/* Trade table — collapsible */}
+      <div style={{
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 8,
+        overflow: 'hidden',
+      }}>
+        <div
+          onClick={() => setTradesCollapsed(c => !c)}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '12px 16px',
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>
+            Trade History{' '}
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({trades.length})</span>
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {tradesCollapsed ? '▼ expand' : '▲ collapse'}
+          </span>
         </div>
-        <DataTable
-          columns={tradeColumns}
-          rows={trades}
-          rowKey={(_, i) => i!}
-        />
+        {!tradesCollapsed && (
+          <DataTable
+            columns={tradeColumns}
+            rows={trades}
+            rowKey={(_, i) => i!}
+          />
+        )}
       </div>
     </div>
   )

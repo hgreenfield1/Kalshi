@@ -37,14 +37,43 @@ class LiveOrderExecutor:
         portfolio: Portfolio,
         bid: float,
         ask: float,
+        position_limits: Optional[tuple[int, int]] = None,
     ) -> bool:
         """
         Execute an order. Updates portfolio and returns True on success.
         Works identically in paper and live mode from the strategy's perspective.
+
+        position_limits: optional (min, max) contract bounds. If the order would
+        push the portfolio outside this range it is rejected before any API call.
         """
+        if position_limits is not None and not self._within_position_limits(
+            order, portfolio.positions, position_limits, ticker
+        ):
+            return False
+
         if not self.auto_execute:
             return self._paper_execute(order, ticker, portfolio, bid, ask)
         return self._live_execute(order, ticker, portfolio, bid, ask)
+
+    def _within_position_limits(
+        self,
+        order: Order,
+        current_position: int,
+        limits: tuple[int, int],
+        ticker: str,
+    ) -> bool:
+        """Return False (and warn) if filling the order would breach position limits."""
+        delta = order.quantity if order.side == OrderSide.BUY else -order.quantity
+        projected = current_position + delta
+        lo, hi = limits
+        if not (lo <= projected <= hi):
+            self._logger.warning(
+                f'[{ticker}] Order rejected: projected position {projected:+d} '
+                f'would breach limits [{lo}, {hi}]. Current: {current_position:+d}  '
+                f'order: {order.side.value.upper()} {order.quantity}'
+            )
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Paper mode

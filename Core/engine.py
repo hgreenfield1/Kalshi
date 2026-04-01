@@ -117,7 +117,9 @@ class BacktestEngine:
             predictions=prediction_log,
             actual_outcome=outcome,
             prediction_model_version=self.strategy.prediction_model_version,
-            strategy_version=self.strategy.version
+            strategy_version=self.strategy.version,
+            strategy_name=self.strategy.name,
+            strategy_description=self.strategy.description,
         )
 
         logging.info(f"Backtest complete: Final cash={portfolio.cash}, Positions={portfolio.positions}")

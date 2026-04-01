@@ -88,3 +88,33 @@ export function useBacktestDistribution(strategy?: string, model?: string) {
   if (model) p.set('model', model)
   return useFetch<{ pnls: number[] }>(`/api/backtest/distribution?${p}`)
 }
+
+export interface PredictionRow {
+  id: number
+  timestamp: string
+  predicted_prob: number
+  bid_price: number
+  ask_price: number
+  cash: number
+  positions: number
+  signal: number | null
+}
+
+export function useBacktestGameDetail(gameId: string | null) {
+  const [data, setData] = useState<PredictionRow[] | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!gameId) { setData(null); setLoading(false); return }
+    let mounted = true
+    setData(null)
+    setLoading(true)
+    fetch(`/api/backtest/game/${encodeURIComponent(gameId)}`)
+      .then(r => r.json())
+      .then((d: any) => { if (mounted) { setData(d?.rows ?? d ?? []); setLoading(false) } })
+      .catch(() => { if (mounted) setLoading(false) })
+    return () => { mounted = false }
+  }, [gameId])
+
+  return { data, loading }
+}

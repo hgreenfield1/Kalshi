@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 from Infrastructure.Clients.http_client import KalshiHttpClient
 
 
@@ -9,6 +10,7 @@ class Orderbook:
         self.bids = {}
         self.asks = {}
         self.last_update = ""
+        self.last_updated_at: Optional[datetime] = None  # wall-clock UTC time of last update
         self.position = 0
 
     def set_orderbook(self, orderbook):
@@ -41,6 +43,7 @@ class Orderbook:
         self.bids = bids
         self.asks = asks
         self.last_update = "kalshi"
+        self.last_updated_at = datetime.now(timezone.utc)
         logging.debug(datetime.now().strftime("%H:%M:%S") + f": Received Kalshi orderbook snapshot: {orderbook}")
 
     def update_orderbook(self, delta):
@@ -81,6 +84,7 @@ class Orderbook:
                 self.asks[ask_cents] = qty
 
         self.last_update = "kalshi"
+        self.last_updated_at = datetime.now(timezone.utc)
         logging.debug(f"Received Kalshi orderbook delta: {delta}")
 
 

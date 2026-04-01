@@ -108,8 +108,12 @@ def main():
         parts = m.ticker.split('-')
         if len(parts) < 3:
             return False
-        teams_str = parts[1][7:]          # strip DDMMMYY date prefix → e.g. 'MIALAD'
-        team      = parts[2]              # e.g. 'MIA'
+        # Ticker format: KXMLBGAME-{DDMMMYY}[{HHMM}]{HOMETEAM}{AWAYTEAM}-{TEAM}
+        # Date is always 7 chars (DDMMMYY); time is 4 optional digits after that.
+        segment = parts[1]
+        offset = 11 if len(segment) > 11 and segment[7:11].isdigit() else 7
+        teams_str = segment[offset:]
+        team = parts[2]
         return teams_str.upper().startswith(team.upper())
 
     home_markets = [m for m in filtered_markets if _is_home_market(m)]

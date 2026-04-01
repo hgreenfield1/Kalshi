@@ -1,6 +1,6 @@
 import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine
+  ResponsiveContainer, ReferenceDot
 } from 'recharts'
 
 interface Tick {
@@ -14,12 +14,45 @@ interface Trade {
   action: string
   price: number
   quantity: number
+  ts?: string
 }
 
 interface Props {
   ticks: Tick[]
   trades?: Trade[]
   height?: number
+}
+
+function findNearestLabel(ts: string, ticks: Tick[]): string | null {
+  if (!ticks.length) return null
+  const t = new Date(ts).getTime()
+  let nearest = ticks[0]
+  let minDiff = Math.abs(new Date(ticks[0].ts).getTime() - t)
+  for (const tick of ticks.slice(1)) {
+    const diff = Math.abs(new Date(tick.ts).getTime() - t)
+    if (diff < minDiff) { minDiff = diff; nearest = tick }
+  }
+  return new Date(nearest.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function BuyArrow({ cx, cy }: { cx?: number; cy?: number }) {
+  if (cx == null || cy == null) return null
+  return (
+    <g>
+      <polygon points={`${cx},${cy - 10} ${cx - 6},${cy} ${cx + 6},${cy}`} fill="#22c55e" />
+      <line x1={cx} y1={cy} x2={cx} y2={cy + 8} stroke="#22c55e" strokeWidth={1.5} />
+    </g>
+  )
+}
+
+function SellArrow({ cx, cy }: { cx?: number; cy?: number }) {
+  if (cx == null || cy == null) return null
+  return (
+    <g>
+      <polygon points={`${cx},${cy + 10} ${cx - 6},${cy} ${cx + 6},${cy}`} fill="#ef4444" />
+      <line x1={cx} y1={cy - 8} x2={cx} y2={cy} stroke="#ef4444" strokeWidth={1.5} />
+    </g>
+  )
 }
 
 function CustomTooltip({ active, payload, label }: any) {
@@ -57,11 +90,15 @@ export default function PriceChart({ ticks, trades = [], height = 280 }: Props) 
     label: t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
   }))
 
-  // Find timestamps of trades to draw reference lines
-  const tradeTs = trades.map((tr, i) => ({
-    ts: ticks[Math.max(0, ticks.length - 1 - i)]?.ts,
-    action: tr.action,
-  })).filter(t => t.ts)
+  // Map each timestamped trade to its nearest tick's x-axis label and the trade price
+  const tradeMarkers = trades
+    .filter(tr => tr.ts)
+    .map(tr => ({
+      label: findNearestLabel(tr.ts!, ticks),
+      price: tr.price,
+      action: tr.action,
+    }))
+    .filter(m => m.label !== null)
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -104,14 +141,17 @@ export default function PriceChart({ ticks, trades = [], height = 280 }: Props) 
           dot={false}
           name="Ask"
         />
-        {/* Trade markers */}
-        {tradeTs.map((t, i) => (
-          <ReferenceLine
+        {/* Trade arrows: buy = green up, sell = red down, placed at trade price */}
+        {tradeMarkers.map((m, i) => (
+          <ReferenceDot
             key={i}
-            x={t.ts ? new Date(t.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-            stroke="var(--yellow)"
-            strokeDasharray="4 4"
-            strokeWidth={1}
+            x={m.label!}
+            y={m.price}
+            r={0}
+            shape={m.action.toLowerCase() === 'buy'
+              ? (props: { cx?: number; cy?: number }) => <BuyArrow cx={props.cx} cy={props.cy} />
+              : (props: { cx?: number; cy?: number }) => <SellArrow cx={props.cx} cy={props.cy} />
+            }
           />
         ))}
       </ComposedChart>

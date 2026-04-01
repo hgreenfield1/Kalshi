@@ -7,6 +7,7 @@ the list used during training is saved in the model's metadata and
 reconstructed on load, so old single-provider models still work.
 """
 
+import math
 import logging
 from pathlib import Path
 from typing import Optional, Tuple
@@ -110,7 +111,11 @@ class StatcastWinProbModel:
             features.update(provider.get_features(state))
 
         X = pd.DataFrame([features], columns=self._feature_cols)
-        return float(self._model.predict_proba(X)[0, 1])
+        prob = float(self._model.predict_proba(X)[0, 1])
+        if not math.isfinite(prob) or not (0.0 <= prob <= 1.0):
+            log.warning("Model returned invalid prediction %s; substituting 0.5", prob)
+            return 0.5
+        return prob
 
     def predict_from_game(self, game) -> float:
         """

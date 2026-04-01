@@ -20,6 +20,7 @@ class BacktestDatabase:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     market_type TEXT NOT NULL DEFAULT 'baseball',
                     market_id TEXT NOT NULL,
+                    game_id TEXT NOT NULL DEFAULT '',
                     timestamp TEXT NOT NULL,
                     predicted_prob REAL,
                     bid_price REAL,
@@ -30,6 +31,8 @@ class BacktestDatabase:
                     actual_outcome BOOLEAN,
                     prediction_model_version TEXT NOT NULL,
                     strategy_version TEXT NOT NULL,
+                    strategy_name TEXT NOT NULL DEFAULT '',
+                    strategy_description TEXT NOT NULL DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -89,7 +92,8 @@ class BacktestDatabase:
 
     def save_predictions(self, market_type: str, predictions: List[Dict[str, Any]],
                         actual_outcome: bool, prediction_model_version: str,
-                        strategy_version: str):
+                        strategy_version: str, strategy_name: str = '',
+                        strategy_description: str = ''):
         """Save predictions to database."""
         if not predictions:
             logging.warning("No predictions to save")
@@ -110,8 +114,9 @@ class BacktestDatabase:
                     INSERT INTO predictions (
                         market_type, market_id, game_id, timestamp, predicted_prob,
                         bid_price, ask_price, cash, positions, signal,
-                        actual_outcome, prediction_model_version, strategy_version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        actual_outcome, prediction_model_version, strategy_version,
+                        strategy_name, strategy_description
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     market_type,
                     pred['market_id'],
@@ -125,7 +130,9 @@ class BacktestDatabase:
                     pred.get('signal'),
                     actual_outcome,
                     prediction_model_version,
-                    strategy_version
+                    strategy_version,
+                    strategy_name,
+                    strategy_description,
                 ))
 
         logging.info(f"Saved {len(predictions)} predictions for {market_id}")

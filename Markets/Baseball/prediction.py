@@ -1,6 +1,7 @@
 import logging
 import math
 from abc import ABC, abstractmethod
+from typing import Optional
 from Markets.Baseball.domain import BaseballGame
 
 
@@ -15,7 +16,7 @@ class PredictionModel(ABC):
         return self._version
 
     @abstractmethod
-    def calculate_expected_win_prob(self, game: BaseballGame) -> float:
+    def calculate_expected_win_prob(self, game: BaseballGame) -> Optional[float]:
         """Calculate expected win probability for a given game state."""
         pass
 
@@ -29,7 +30,7 @@ class AlphaDecayPredictionModel(PredictionModel):
         self.alpha_t = alpha_t  # Tunes the decay of pre-game probabilities as game progresses
         self.alpha_prob = alpha_prob  # Tunes the weighting of live vs pre-game probabilities as live prob moves away from 0.5
 
-    def calculate_expected_win_prob(self, game: BaseballGame) -> float:
+    def calculate_expected_win_prob(self, game: BaseballGame) -> Optional[float]:
         t = game.pctPlayed
         P_pre = game.pregame_winProbability
         P_live = game.winProbability
@@ -37,6 +38,16 @@ class AlphaDecayPredictionModel(PredictionModel):
         if P_live == -1:
             logging.warning("Live win probability is not available.")
             return None
+
+        # Guard against bad model output propagating into the blend
+        if not math.isfinite(P_live) or not (0.0 <= P_live <= 100.0):
+            logging.warning("Live win probability out of range (%.4f); substituting 50.0", P_live)
+            P_live = 50.0
+
+        # When pregame price is unavailable (-1) or invalid, use a neutral 50%
+        # so the blending formula still produces a valid result.
+        if P_pre == -1 or not math.isfinite(P_pre) or not (0.0 <= P_pre <= 100.0):
+            P_pre = 50.0
 
         # Standard exponential decay weight
         base_weight = math.exp(-self.alpha_t * t)
@@ -52,7 +63,11 @@ class AlphaDecayPredictionModel(PredictionModel):
         pre_weight /= total
         live_weight /= total
 
-        return round(pre_weight * P_pre + live_weight * P_live, 2)
+        result = round(pre_weight * P_pre + live_weight * P_live, 2)
+        if not math.isfinite(result) or not (0.0 <= result <= 100.0):
+            logging.warning("Blended win prob out of range (%.4f); substituting 50.0", result)
+            return 50.0
+        return result
 
 
 def get_prediction_model_by_version(version: str) -> PredictionModel:
