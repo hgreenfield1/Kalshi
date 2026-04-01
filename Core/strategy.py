@@ -26,6 +26,8 @@ class BaseStrategy(ABC):
 
     _version = "1.0.0"
     _prediction_model_version = "1.0.0"
+    _name = "BaseStrategy"
+    _description = ""
 
     def __init__(self):
         self.state = {}  # Optional stateful data across timesteps
@@ -37,6 +39,14 @@ class BaseStrategy(ABC):
     @property
     def prediction_model_version(self) -> str:
         return self._prediction_model_version
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def description(self) -> str:
+        return self._description
 
     @abstractmethod
     def get_data_requirements(self) -> List[DataRequirement]:

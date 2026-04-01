@@ -198,6 +198,13 @@ class FavoriteLongShotStrategy(BaseMLBStrategy):
 
     _version = "v1.1.0"
     _prediction_model_version = "v1.1.0"
+    _name = "FavoriteLongShot"
+    _description = (
+        "Exploits favorite-longshot bias. "
+        "Long when model >= 60% and edge vs ask >= 5pts. "
+        "Short when model <= 40% and edge vs bid >= 5pts. "
+        "Kelly fraction=0.25, profit target=+35¢, stop loss=-25¢, model reversal exit."
+    )
 
     def __init__(self):
         super().__init__()
@@ -235,6 +242,13 @@ class MeanReversionStrategy(BaseMLBStrategy):
 
     _version = "v2.1.0"
     _prediction_model_version = "v1.1.0"
+    _name = "MeanReversion"
+    _description = (
+        "Fades market overreactions. "
+        "Short when price_change - model_change > 5pts over 10-min window. "
+        "Long when model_change - price_change > 5pts over 10-min window. "
+        "Kelly fraction=0.25, profit target=+35¢, stop loss=-25¢, model reversal exit."
+    )
 
     def __init__(self):
         super().__init__()
@@ -312,6 +326,14 @@ class InningAdjustedEdgeStrategy(BaseMLBStrategy):
 
     _version = "v3.0.0"
     _prediction_model_version = "v1.1.0"
+    _name = "InningAdjustedEdge"
+    _description = (
+        "Model-vs-market edge with inning-calibrated thresholds. "
+        "Innings 1-3: edge >= 10pts, conviction >= 60%. "
+        "Innings 4-6: edge >= 5pts, conviction >= 55%. "
+        "Innings 7+: edge >= 5pts, conviction >= 55%. "
+        "Kelly fraction=0.25, profit target=+35¢, stop loss=-25¢, model reversal exit."
+    )
 
     def __init__(self):
         super().__init__()

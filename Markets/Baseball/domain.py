@@ -16,7 +16,10 @@ def market_to_game(market: Market):
     year = "20" + str(data[0:2])
     month_str = data[2:5]
     day_str = data[5:7]
-    teams = data[7:]
+    # New ticker format includes HHMM time after the DDMMMYY date (7 chars).
+    # Detect by checking if positions 7-11 are 4 digits (e.g. "2210").
+    offset = 11 if len(data) > 11 and data[7:11].isdigit() else 7
+    teams = data[offset:]
     is_doubleheader_g2 = "G2" in teams
     team2 = teams.replace(team1, '', 1)
     if "G2" in team2:
