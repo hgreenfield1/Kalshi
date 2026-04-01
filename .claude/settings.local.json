@@ -6,7 +6,8 @@
       "WebSearch",
       "WebFetch",
       "Greb",
-      "Glob"
+      "Glob",
+      "Bash(git stash:*)"
     ],
     "deny": []
   }
