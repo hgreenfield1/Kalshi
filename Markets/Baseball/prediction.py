@@ -23,7 +23,7 @@ class PredictionModel(ABC):
 class AlphaDecayPredictionModel(PredictionModel):
     """Prediction model using exponential decay weighting between pre-game and live probabilities."""
 
-    def __init__(self, alpha_t: float = 6, alpha_prob: float = 12):
+    def __init__(self, alpha_t: float = 9, alpha_prob: float = 18):
         super().__init__()
         self._version = "1.1.0"
         self.alpha_t = alpha_t  # Tunes the decay of pre-game probabilities as game progresses

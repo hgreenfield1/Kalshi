@@ -121,14 +121,19 @@ def get_schedule(date_str: Optional[str] = Query(None, alias="date")):
         if ticker:
             game_data = _read_json(_game_path(ticker))
 
+        status = e.get("status", "pending")
         pnl = 0.0
         position = 0
         trade_count = 0
-        if game_data:
+        pregame_win_probability = None
+        # Only read game state for games that have actually started — pending/armed
+        # games may have stale files on disk from prior sessions with the same ticker.
+        if game_data and status not in ("pending", "armed"):
             portfolio = game_data.get("portfolio", {})
             pnl = _calc_pnl(portfolio)
             position = portfolio.get("positions", 0)
             trade_count = len(portfolio.get("trade_history", []))
+            pregame_win_probability = game_data.get("pregame_win_probability")
 
         games.append({
             "game_id": e.get("game_id"),
@@ -136,11 +141,11 @@ def get_schedule(date_str: Optional[str] = Query(None, alias="date")):
             "home_team": e.get("home_team"),
             "away_team": e.get("away_team"),
             "scheduled_start": e.get("scheduled_start"),
-            "status": e.get("status", "pending"),
+            "status": status,
             "pnl": pnl,
             "position": position,
             "trade_count": trade_count,
-            "pregame_win_probability": game_data.get("pregame_win_probability") if game_data else None,
+            "pregame_win_probability": pregame_win_probability,
         })
 
     return {
@@ -188,7 +193,7 @@ def get_summary():
             done_count += 1
 
         ticker = e.get("market_ticker", "")
-        if ticker:
+        if ticker and status not in ("pending", "armed"):
             gd = _read_json(_game_path(ticker))
             if gd:
                 total_pnl += _calc_pnl(gd.get("portfolio", {}))

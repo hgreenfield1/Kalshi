@@ -46,6 +46,9 @@ class BaseMLBStrategy(BaseStrategy):
         self.profit_target_pts = 35
         self.stop_loss_pts = 25
         self._tick_history: list = []  # {ts, bid, ask, model_prob} — capped at 200
+        # When True: skip model-reversal-to-50 exits; only close on an actual
+        # opposite signal (or profit/loss limits).
+        self.hold_unless_opposite = False
 
     def _kelly_contracts(self, model_prob: float, price: float, cash: float, side: str) -> int:
         """Fractional Kelly contract sizing.
@@ -81,7 +84,7 @@ class BaseMLBStrategy(BaseStrategy):
                 return 'close_long'
             if pnl <= -self.stop_loss_pts:
                 return 'close_long'
-            if model_prob < 50:  # model reversed to bearish
+            if not self.hold_unless_opposite and model_prob < 50:
                 return 'close_long'
 
         elif positions < 0:
@@ -90,7 +93,7 @@ class BaseMLBStrategy(BaseStrategy):
                 return 'close_short'
             if pnl <= -self.stop_loss_pts:
                 return 'close_short'
-            if model_prob > 50:  # model reversed to bullish
+            if not self.hold_unless_opposite and model_prob > 50:
                 return 'close_short'
 
         return None
@@ -146,6 +149,17 @@ class BaseMLBStrategy(BaseStrategy):
             return []
 
         self._active_signal = new_signal
+
+        # Close existing position when signal flips to opposite direction
+        if self.hold_unless_opposite:
+            if new_signal == 'short' and positions > 0:
+                orders.append(Order(OrderSide.SELL, positions, bid))
+                self._entry_price = None
+                positions = 0
+            elif new_signal == 'long' and positions < 0:
+                orders.append(Order(OrderSide.BUY, abs(positions), ask))
+                self._entry_price = None
+                positions = 0
 
         if new_signal == 'long' and positions < self.position_limits[1]:
             qty = self._kelly_contracts(model_prob, ask, cash, 'long')
@@ -240,9 +254,10 @@ class MeanReversionStrategy(BaseMLBStrategy):
         super().__init__()
         self.prediction_model = get_prediction_model_by_version(self._prediction_model_version)
         self.window_minutes = 10
-        self.overreaction_threshold = 5
+        self.overreaction_threshold = 10  # widened from 5 — requires larger market divergence
         self.price_history = deque(maxlen=self.window_minutes)
         self.model_history = deque(maxlen=self.window_minutes)
+        self.hold_unless_opposite = True  # only exit on actual opposite signal or P&L limits
 
     def get_data_requirements(self):
         return [DataRequirement(

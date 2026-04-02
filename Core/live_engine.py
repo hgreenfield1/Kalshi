@@ -336,6 +336,7 @@ class LiveGameEngine:
         state = {
             'ticker': self.market.ticker,
             'game_id': self.game.game_id,
+            'game_date': self.game.game_date,
             'pregame_prob_fetched': self._pregame_prob_fetched,
             'pregame_win_probability': self.game.pregame_winProbability,
             'portfolio': {
@@ -371,6 +372,14 @@ class LiveGameEngine:
         if data.get('ticker') != self.market.ticker:
             self._logger.warning(
                 f'State file ticker {data.get("ticker")} != {self.market.ticker}. Ignoring.'
+            )
+            return
+
+        if data.get('game_date') and data.get('game_date') != self.game.game_date:
+            self._logger.warning(
+                f'State file game_date {data.get("game_date")} != {self.game.game_date}. '
+                f'Different game on same ticker (e.g. prior-day game matched to next-day market). '
+                f'Starting fresh.'
             )
             return
 
